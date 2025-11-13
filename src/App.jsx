@@ -131,7 +131,7 @@ function App() {
               }
             />
             <Route
-              path="/attendance-salary"
+              path="/attendance"
               element={
                 <ProtectedRoute allowedRoles={["Manager", "CEO"]}>
                   <AppShell>
@@ -173,7 +173,7 @@ function App() {
               }
             />
             <Route
-              path="/attendance-management"
+              path="/attendance"
               element={
                 <ProtectedRoute allowedRoles={["HR"]}>
                   <AppShell>
