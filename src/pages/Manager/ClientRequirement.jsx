@@ -5,6 +5,7 @@ import { useRef, useState, useEffect } from "react";
 import TaskTemplatePicker from "../../components/TaskTemplatePicker";
 import { apiGet, apiPost, apiFetch } from "../../lib/api";
 
+
 // ------------------ Validation Schema ------------------
 const RequirementIntakeSchema = z.object({
   clientInfo: z.object({
@@ -13,6 +14,9 @@ const RequirementIntakeSchema = z.object({
     projectname: z.string().min(2),
     budget: z.number().nonnegative().optional(),
     timelineWeeks: z.number().int().positive().optional(),
+    clientAddress: z.string().optional(),
+    businessPhoneNo: z.string().optional(),
+    contactEmail: z.string().email().optional(), // ✅ ADDED
   }),
   functional: z.object({
     pagesCsv: z.string().optional(),
@@ -28,34 +32,63 @@ const RequirementIntakeSchema = z.object({
     supportSla: z.string().optional(),
   }),
   uiux: z.object({
-    brandColors: z.array(z.string()).optional(),
+    brandColors: z.string().optional(), // ✅ CHANGED from array to string
     hasWireframes: z.boolean().default(false),
     responsive: z.boolean().default(true),
   }),
+  description: z.string().optional(), // ✅ ADDED
+  note: z.string().optional(), // ✅ ADDED
+  contactInfo: z.object({ // ✅ ADDED entire section
+    contactName: z.string().optional(),
+    contactNumber: z.string().optional(),
+    contactEmail: z.string().email().optional(),
+    address: z.string().optional(),
+  }).optional(),
 });
+
 
 // ------------------ Component ------------------
 export default function ClientIntakePage() {
   const methods = useForm({
     resolver: zodResolver(RequirementIntakeSchema),
     defaultValues: {
-      clientInfo: { stakeholders: [] },
+      clientInfo: { 
+        stakeholders: [],
+        clientAddress: "",
+        businessPhoneNo: "",
+        contactEmail: "", // ✅ ADDED
+      },
       functional: { pagesCsv: "" },
       technical: {
         deployModel: "cloud",
         releaseStrategy: "continuous",
       },
-      uiux: { brandColors: [], hasWireframes: false, responsive: true },
+      uiux: { 
+        brandColors: "", // ✅ CHANGED from [] to ""
+        hasWireframes: false, 
+        responsive: true 
+      },
+      description: "", // ✅ ADDED
+      note: "", // ✅ ADDED
+      contactInfo: { // ✅ ADDED
+        contactName: "",
+        contactNumber: "",
+        contactEmail: "",
+        address: "",
+      },
     },
   });
 
+
   const { handleSubmit, register, control, formState } = methods;
   const { isSubmitting, errors } = formState;
+
 
   const [files, setFiles] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
   const selectedType = useWatch({ control, name: "functional.pagesCsv" });
+
 
   // ---------- Scroll Helpers ----------
   const scrollYRef = useRef(0);
@@ -67,6 +100,7 @@ export default function ClientIntakePage() {
       requestAnimationFrame(() => window.scrollTo({ top: scrollYRef.current }));
   };
 
+
   const preventDefault = (e) => e.preventDefault();
   const onDrop = (e) => {
     e.preventDefault();
@@ -76,6 +110,7 @@ export default function ClientIntakePage() {
     setFiles((prev) => [...prev, ...Array.from(e.target.files || [])]);
   };
 
+
   const Section = ({ title, children }) => (
     <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
       <h3 className="mb-4 font-semibold tracking-tight text-zinc-900">{title}</h3>
@@ -83,10 +118,12 @@ export default function ClientIntakePage() {
     </section>
   );
 
+
   const inputBase =
     "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 placeholder-zinc-400 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10";
   const labelBase = "text-sm font-medium text-zinc-700";
   const gridTwo = "grid grid-cols-1 gap-4 md:grid-cols-2";
+
 
   // ---------- Template Picker ----------
   const handleSelectTemplate = (id) => {
@@ -95,6 +132,7 @@ export default function ClientIntakePage() {
     );
   };
 
+
   // ---------- Load Fields Based on Selected Type ----------
   useEffect(() => {
     if (!selectedType) {
@@ -102,13 +140,13 @@ export default function ClientIntakePage() {
       return;
     }
 
+
     const loadFields = async () => {
       try {
         const res = await apiGet("/field-table");
         if (!res.ok) throw new Error("Failed to load fields");
         const data = await res.json();
 
-        // FRONTEND FILTERING HERE
         const filtered = data.filter((f) => f.type === selectedType);
 
         setTemplates(
@@ -129,145 +167,141 @@ export default function ClientIntakePage() {
     loadFields();
   }, [selectedType]);
 
+
   // ---------- Submit (multipart: data + files) ----------
-  const onSubmit = async (data) => {
-    try {
-      // Build backend payload for client onboarding (keep all existing fields)
-      const payload = {
-        projectId: `PROJ-${Date.now()}`,
-        clientInfo: {
-          businessName: data.clientInfo.businessName,
-          projectName: data.clientInfo.projectname,
-          clientAddress: data.clientInfo.clientAddress || "",
-          businessPhoneNo: data.clientInfo.businessPhoneNo || "",
-        },
-        projectType: {
-          websiteDev:
-            data.functional.pagesCsv === "Website Development" ? "true" : "false",
-          ecommerceApp:
-            data.functional.pagesCsv === "E-commerce Development" ? "true" : "false",
-          mobileApp:
-            data.functional.pagesCsv === "Mobile App Development" ? "true" : "false",
-          seoServices:
-            data.functional.pagesCsv === "SEO Services" ? "true" : "false",
-          contentManagement:
-            data.functional.pagesCsv === "Content Creation" ? "true" : "false",
-          digitalMarketing:
-            data.functional.pagesCsv === "Digital Marketing" ? "true" : "false",
-        },
-        technical: {
-          preferredStack: [],
-          dbChoice: data.technical.dbChoice || "",
-          hosting: data.technical.hosting || "",
-          frontend: data.technical.frontend || "",
-          backend: data.technical.backend || "",
-          frameworks: data.technical.frameworks || "",
-          deployModel: data.technical.deployModel || "",
-          releaseStrategy: data.technical.releaseStrategy || "",
-          supportSla: data.technical.supportSla || "",
-        },
-        uiux: {
-          // keep same shape: join into a string to match earlier behavior
-          brandColors: Array.isArray(data?.uiux?.brandColors)
-            ? data.uiux.brandColors.join(", ")
-            : String(data?.uiux?.brandColors || ""),
-          hasWireframes: !!data?.uiux?.hasWireframes,
-          responsive: !!data?.uiux?.responsive,
-        },
-        // keep fileUploads metadata here (this is optional — controller will override if files present)
-        fileUploads: files.map((f) => ({
-          fileName: f.name,
-          fileType: f.type || "unknown",
-          fileUrl: "", // controller will replace with real URL after uploading
-          fileSize: f.size || 0,
-        })),
-        description: data.description || "",
-        note: data.note || "",
-        contactInfo: {
-          contactName: data.clientInfo.businessName || "",
-          contactNumber: data.clientInfo.businessPhoneNo || "",
-          contactEmail: data.clientInfo.contactEmail || "unknown@company.com",
-          address: data.clientInfo.clientAddress || "",
-        },
-      };
+ const onSubmit = async (data) => {
+  try {
+    const payload = {
+      projectId: `PROJ-${Date.now()}`,
+      clientInfo: {
+        businessName: data.clientInfo.businessName,
+        projectName: data.clientInfo.projectname,
+        clientAddress: data.clientInfo.clientAddress || "",
+        businessPhoneNo: data.clientInfo.businessPhoneNo || "",
+      },
+      projectType: {
+        websiteDev:
+          data.functional.pagesCsv === "Website Development" ? "true" : "false",
+        ecommerceApp:
+          data.functional.pagesCsv === "E-commerce Development" ? "true" : "false",
+        mobileApp:
+          data.functional.pagesCsv === "Mobile App Development" ? "true" : "false",
+        seoServices:
+          data.functional.pagesCsv === "SEO Services" ? "true" : "false",
+        contentManagement:
+          data.functional.pagesCsv === "Content Creation" ? "true" : "false",
+        digitalMarketing:
+          data.functional.pagesCsv === "Digital Marketing" ? "true" : "false",
+      },
+      technical: {
+        preferredStack: [],
+        dbChoice: data.technical?.dbChoice || "",
+        hosting: data.technical?.hosting || "",
+        frontend: data.technical?.frontend || "",
+        backend: data.technical?.backend || "",
+        frameworks: data.technical?.frameworks || "",
+        deployModel: data.technical?.deployModel || "",
+        releaseStrategy: data.technical?.releaseStrategy || "",
+        supportSla: data.technical?.supportSla || "",
+      },
+      uiux: {
+        brandColors: data?.uiux?.brandColors || "",
+        hasWireframes: !!data?.uiux?.hasWireframes,
+        responsive: !!data?.uiux?.responsive,
+      },
+      fileUploads: files.map((f) => ({
+        fileName: f.name,
+        fileType: f.type || "unknown",
+        fileUrl: "",
+        fileSize: f.size || 0,
+      })),
+      description: data.description || "",
+      note: data.note || "",
+      contactInfo: {
+        contactName: data.contactInfo?.contactName || "",
+        contactNumber: data.contactInfo?.contactNumber || "",
+        contactEmail: data.contactInfo?.contactEmail || data.clientInfo?.contactEmail || "",
+        address: data.contactInfo?.address || "",
+      },
+    };
 
-      console.log("📦 Sending payload to backend (multipart):", payload);
+    console.log("📦 Sending payload to backend (multipart):", payload);
 
-      // Build FormData and attach JSON blob + files
-      const formData = new FormData();
-      formData.append(
-        "data",
-        new Blob([JSON.stringify(payload)], { type: "application/json" }),
-        "data.json"
-      );
+    // ✅ Create FormData
+    const formData = new FormData();
+    
+    // ✅ Append JSON data as Blob
+    formData.append(
+      "data",
+      new Blob([JSON.stringify(payload)], { type: "application/json" })
+    );
 
-
-      if (files && files.length > 0) {
-        files.forEach((file) => {
-          formData.append("files", file);
-        });
-      }
-
-      // POST to multipart endpoint
-      const res = await apiFetch(`/client-onboard`, {
-        method: "POST",
-        body: formData, // DO NOT set Content-Type header; let browser set multipart boundary
-        headers: {}, // Override default JSON header for multipart
+    // ✅ Append files
+    if (files && files.length > 0) {
+      files.forEach((file) => {
+        formData.append("files", file);
       });
+    }
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => null);
-        throw new Error(text || "Failed to save client onboarding");
-      }
+    // ✅ Use apiFetch with FormData (it will now handle Content-Type correctly)
+    const res = await apiFetch(`/client-onboard`, {
+      method: "POST",
+      body: formData,
+    });
 
-      const saved = await res.json();
-      console.log("✅ Saved successfully:", saved);
-      alert(
-        `✅ Client Onboard Created Successfully for ${saved.clientInfo?.businessName || saved.projectId}`
-      );
+    if (!res.ok) {
+      const text = await res.text().catch(() => null);
+      throw new Error(text || "Failed to save client onboarding");
+    }
 
-      // Clear selected files after success
-      setFiles([]);
+    const saved = await res.json();
+    console.log("✅ Saved successfully:", saved);
+    alert(
+      `✅ Client Onboard Created Successfully for ${saved.clientInfo?.businessName || saved.projectId}`
+    );
 
-      // 2️⃣ Create stories for each selected field (unchanged logic)
-      if (selectedTemplateIds.length > 0) {
-        console.log("🧩 Creating stories for selected fields...");
-        for (const fieldId of selectedTemplateIds) {
-          try {
-            // Fetch field details
-            const fieldRes = await apiGet(`/field-table/${fieldId}`);
-            let field = null;
-            if (fieldRes.ok) field = await fieldRes.json();
+    // Clear files
+    setFiles([]);
 
-            const storyPayload = {
-              taskName: field?.taskName || "Feature from Field",
-              taskDescription: field?.taskDescription || "",
-              type: field?.type || "Feature",
-              description: "",
-              assignedTo: "unassigned",
-              project: saved.clientInfo?.projectName || saved.projectId || "",
-              department: field?.deptName || "",
-              priority: field?.priority || "MEDIUM",
-              status: "BACKLOG",
-            };
+    // Create stories for selected templates
+    if (selectedTemplateIds.length > 0) {
+      console.log("🧩 Creating stories for selected fields...");
+      for (const fieldId of selectedTemplateIds) {
+        try {
+          const fieldRes = await apiGet(`/field-table/${fieldId}`);
+          let field = null;
+          if (fieldRes.ok) field = await fieldRes.json();
 
-            const storyRes = await apiPost(`/story-table`, storyPayload);
+          const storyPayload = {
+            taskName: field?.taskName || "Feature from Field",
+            taskDescription: field?.taskDescription || "",
+            type: field?.type || "Feature",
+            description: "",
+            assignedTo: "unassigned",
+            project: saved.clientInfo?.projectName || saved.projectId || "",
+            department: field?.deptName || "",
+            priority: field?.priority || "MEDIUM",
+            status: "BACKLOG",
+          };
 
-            if (!storyRes.ok) {
-              console.error(`❌ Failed to create story for field ${fieldId}`);
-            } else {
-              console.log(`✅ Story created for field ${fieldId}`);
-            }
-          } catch (err) {
-            console.error("❌ Error creating story:", err);
+          const storyRes = await apiPost(`/story-table`, storyPayload);
+
+          if (!storyRes.ok) {
+            console.error(`❌ Failed to create story for field ${fieldId}`);
+          } else {
+            console.log(`✅ Story created for field ${fieldId}`);
           }
+        } catch (err) {
+          console.error("❌ Error creating story:", err);
         }
       }
-    } catch (e) {
-      console.error("❌ Save failed:", e);
-      alert("❌ Failed to save client onboarding record. Please try again.");
     }
-  };
+  } catch (e) {
+    console.error("❌ Save failed:", e);
+    alert("❌ Failed to save client onboarding record. Please try again.");
+  }
+};
+
 
   // ---------- UI ----------
   return (
@@ -322,6 +356,17 @@ export default function ClientIntakePage() {
                       className={inputBase}
                       placeholder="9876543210"
                       {...register("clientInfo.businessPhoneNo")}
+                    />
+                  </div>
+
+                  {/* ✅ ADDED: Contact Email in clientInfo */}
+                  <div>
+                    <label className={labelBase}>Contact Email</label>
+                    <input
+                      type="email"
+                      className={inputBase}
+                      placeholder="contact@company.com"
+                      {...register("clientInfo.contactEmail")}
                     />
                   </div>
                 </div>
@@ -452,7 +497,7 @@ export default function ClientIntakePage() {
                     <input
                       className={inputBase}
                       placeholder="#000000, #FFFFFF"
-                      {...register("uiux.brandColors.0")}
+                      {...register("uiux.brandColors")} 
                     />
                   </div>
                   <div>
@@ -482,6 +527,7 @@ export default function ClientIntakePage() {
                 </div>
               </Section>
 
+              {/* ✅ ADDED: Description & Notes Section */}
               <Section title="Project Description & Notes">
                 <div>
                   <label className={labelBase}>Description</label>
@@ -501,6 +547,7 @@ export default function ClientIntakePage() {
                 </div>
               </Section>
 
+              {/* ✅ ADDED: Contact Info Section */}
               <Section title="Primary Contact Info">
                 <div className={gridTwo}>
                   <div>

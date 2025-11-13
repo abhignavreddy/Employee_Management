@@ -42,6 +42,7 @@ import DepartmentReportsPage from "./pages/CEO/DepartmentReportsPage";
 import SalariesOverviewPage from "./pages/CEO/SalariesOverviewPage";
 import TopPerformersPage from "./pages/CEO/TopPerformersPage";
 import TaskAnalyticsPage from "./pages/CEO/TaskAnalyticsPage";
+import MyAttendancePage from "./pages/Employee/MyAttendancePage";
 
 // CEO Pages (Placeholder)
 const PlaceholderPage = ({ title }) => (
@@ -291,7 +292,7 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={["Employee"]}>
                   <AppShell>
-                    <PlaceholderPage title="My Attendance" />
+                    <MyAttendancePage/>
                   </AppShell>
                 </ProtectedRoute>
               }
