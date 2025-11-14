@@ -63,7 +63,7 @@ const generateEmpId = (firstName, lastName) => {
   const f = firstName.trim().toUpperCase().slice(0, 4);
   const l = lastName?.trim()?.toUpperCase()?.charAt(0) || "";
   const num = Math.floor(100 + Math.random() * 900);
-  return `EMP-${f}${l}${num}`;
+  return `${f}${l}${num}`;
 };
 const emptyCreate = {
   firstName: "",

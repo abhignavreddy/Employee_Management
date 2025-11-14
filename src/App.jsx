@@ -134,7 +134,7 @@ function App() {
             <Route
               path="/attendance"
               element={
-                <ProtectedRoute allowedRoles={["Manager", "CEO"]}>
+                <ProtectedRoute allowedRoles={["Manager", "CEO", "HR"]}>
                   <AppShell>
                     <AttendanceManagementPage />
                   </AppShell>
