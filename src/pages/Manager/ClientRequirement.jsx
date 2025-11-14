@@ -479,18 +479,20 @@ export default function ClientIntakePage() {
                     <option value="" disabled hidden>
                       Select type
                     </option>
-                    <option value="Website Development">
-                      Website Development
-                    </option>
-                    <option value="Mobile App Development">
-                      Mobile App Development
-                    </option>
-                    <option value="E-commerce Development">
-                      E-commerce Development
-                    </option>
+                    <option value="Website Development">Website Development</option>
+                    <option value="Web Application Development">Web Application Development</option>
+                    <option value="Mobile App Development">Mobile App Development</option>
+                    <option value="E-commerce Development">E-commerce Development</option>
+                    <option value="Social Media Application Development">Social Media Application Development</option>
+                    <option value="Social Networking Application Development">Social Networking Application Development</option>
+                    <option value="UI/UX Design">UI/UX Design</option>
                     <option value="SEO Services">SEO Services</option>
                     <option value="Content Creation">Content Creation</option>
                     <option value="Digital Marketing">Digital Marketing</option>
+                    <option value="Branding & Graphic Design">Branding & Graphic Design</option>
+                    <option value="Custom Software Development">Custom Software Development</option>
+                    <option value="Cloud Integration">Cloud Integration</option>
+                    <option value="Maintenance & Support">Maintenance & Support</option>
                   </select>
                   {errors.functional?.pagesCsv && (
                     <p className={errorText}>{errors.functional.pagesCsv.message}</p>
