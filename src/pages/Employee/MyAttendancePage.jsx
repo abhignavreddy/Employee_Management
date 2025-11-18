@@ -7,7 +7,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import LeaveRequestModal from "./LeaveRequestModal";
 import TimesheetModal from "./TimesheetModal";
 
-import { LogIn, LogOut, Home, Building2, Clock, Plus, Download } from "lucide-react";
+import { LogIn, LogOut, Home, Building2, Plus, Download } from "lucide-react";
 
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -30,16 +30,37 @@ export default function MyAttendancePage() {
   const [records, setRecords] = useState([]);
   const [workMode, setWorkMode] = useState("Office");
   const [todayRecord, setTodayRecord] = useState(null);
+  const [isOnLeaveToday, setIsOnLeaveToday] = useState(false);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
-  const [leaveRequests, setLeaveRequests] = useState([]);
 
-  // Load attendance
+  // Load attendance and leave data
   const load = async () => {
     if (!user?.empId) return;
     try {
       const data = await AttendanceAPI.getByEmpId(user.empId);
       setRecords(data || []);
+
+      // Load approved leave data
+      try {
+        const leaveRes = await api.get(`/api/leave/employee/${user.empId}`);
+        const leaves = leaveRes.data || [];
+
+        const today = new Date().toISOString().split("T")[0];
+
+        // Check if today falls under any approved leave
+        const onLeave = leaves.some(l =>
+          l.status === "Approved" &&
+          today >= l.startDate &&
+          today <= l.endDate
+        );
+
+        setIsOnLeaveToday(onLeave);
+      } catch (err) {
+        console.error("Failed to load leave data:", err);
+        setIsOnLeaveToday(false);
+      }
+
       const today = new Date().toISOString().split("T")[0];
       const todayRec = data.find((r) => r.date === today);
       setTodayRecord(todayRec || null);
@@ -51,13 +72,12 @@ export default function MyAttendancePage() {
   useEffect(() => { load(); }, [user]);
 
   const onLeaveRequestSubmitted = () => {
-  // Refresh data or refetch leave requests from backend after submission
-  load(); // if load fetches attendance+leave data, or fetch leaveRequests here
-};
+    load(); // Refresh attendance and leave data
+  };
 
-  // Check-In / Check-Out actions
-  const canCheckIn = !todayRecord || (!todayRecord.checkIn && !todayRecord.checkOut);
-  const canCheckOut = todayRecord && todayRecord.checkIn && !todayRecord.checkOut;
+  // Check-In / Check-Out conditions
+  const canCheckIn = !isOnLeaveToday && (!todayRecord || (!todayRecord.checkIn && !todayRecord.checkOut));
+  const canCheckOut = !isOnLeaveToday && todayRecord && todayRecord.checkIn && !todayRecord.checkOut;
 
   const handleCheckIn = async () => {
     try {
@@ -139,13 +159,30 @@ export default function MyAttendancePage() {
         </Button>
       </div>
 
+      {/* LEAVE WARNING */}
+      {isOnLeaveToday && (
+        <div className="p-3 mb-2 bg-yellow-100 text-yellow-800 rounded-md border border-yellow-300">
+          You are on approved leave today. Check-In/Check-Out is disabled.
+        </div>
+      )}
+
       {/* CHECK-IN / CHECK-OUT */}
-      <div className="flex items-center gap-3 mt-4">
+      <div className="flex items-center gap-3 mt-2">
         <Select value={workMode} onValueChange={setWorkMode}>
-          <SelectTrigger className="w-[130px]"><SelectValue placeholder="Work Mode" /></SelectTrigger>
+          <SelectTrigger className="w-[130px] bg-gray-50"><SelectValue placeholder="Work Mode" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="Office"><Building2 className="w-4 h-4 mr-1" /> Office</SelectItem>
-            <SelectItem value="WFH"><Home className="w-4 h-4 mr-1" /> WFH</SelectItem>
+            <SelectItem value="Office">
+              <div className="flex items-center space-x-2">
+                <Building2 className="w-4 h-4" />
+                <span>Office</span>
+              </div>
+            </SelectItem>
+            <SelectItem value="WFH">
+              <div className="flex items-center space-x-2">
+                <Home className="w-4 h-4" />
+                <span>WFH</span>
+              </div>
+            </SelectItem>
           </SelectContent>
         </Select>
         <Button onClick={handleCheckIn} disabled={!canCheckIn} className={`text-white ${canCheckIn ? "bg-green-600 hover:bg-green-700":"bg-gray-400"}`}><LogIn className="w-4 h-4 mr-1"/>Check In</Button>
@@ -191,12 +228,12 @@ export default function MyAttendancePage() {
       {/* TIMESHEET BUTTON & DOWNLOAD */}
       <div className="flex justify-end gap-3 mt-4">
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+          <DropdownMenuTrigger asChild  className=" bg-grey-50">
             <Button className="bg-blue-600 hover:bg-blue-700 text-white">
               <Download size={18} className="mr-1"/> Download
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent>
+          <DropdownMenuContent className="bg-white">
             <DropdownMenuItem onClick={downloadCSV}>Download CSV</DropdownMenuItem>
             <DropdownMenuItem onClick={downloadPDF}>Download PDF</DropdownMenuItem>
           </DropdownMenuContent>
@@ -210,12 +247,11 @@ export default function MyAttendancePage() {
       <TimesheetModal open={isTimesheetOpen} onClose={() => setIsTimesheetOpen(false)} records={sortedRecords} />
 
       <LeaveRequestModal 
-  open={isLeaveModalOpen} 
-  onClose={() => setIsLeaveModalOpen(false)} 
-  user={user} 
-  onSubmitSuccess={load}  // Add this line to refresh data after submission
-/>
-
+        open={isLeaveModalOpen} 
+        onClose={() => setIsLeaveModalOpen(false)} 
+        user={user} 
+        onSubmitSuccess={load}  // Refresh data after submission
+      />
     </div>
   );
 }

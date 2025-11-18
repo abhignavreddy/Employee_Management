@@ -3,20 +3,7 @@ import apiClient from "../../lib/apiClient";
 import { useAuth } from "../../contexts/AuthContext";
 import LeaveRequestModal from "../Employee/LeaveRequestModal";
 import TimesheetModal from "../Employee/TimesheetModal";
-import {
-  Plus,
-  Calendar,
-  CheckCircle,
-  AlertTriangle,
-  BarChart3,
-  Search,
-  LogIn,
-  LogOut,
-  Building2,
-  Home,
-  Download,
-} from "lucide-react";
-
+import {Plus,Calendar,CheckCircle,AlertTriangle,BarChart3,Search,LogIn,LogOut,Building2,Home,Download,} from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -78,20 +65,48 @@ export default function AttendanceManagementPage() {
 
   const isManagerView = ["HR", "Manager", "CEO"].includes(user?.role);
 
+  // Helper to filter records by date ignoring timestamps
+  const filterByDate = (records, targetDate) => {
+    return records.filter((r) => {
+      if (!r.date) return false;
+      const recDate = new Date(r.date);
+      const selDate = new Date(targetDate);
+      return (
+        recDate.getFullYear() === selDate.getFullYear() &&
+        recDate.getMonth() === selDate.getMonth() &&
+        recDate.getDate() === selDate.getDate()
+      );
+    });
+  };
+
   const load = async () => {
     setLoading(true);
     try {
       const selfRecords = await AttendanceAPI.getByEmpId(user.empId);
+
+      // Get today's record for self
       const today = new Date().toISOString().split("T")[0];
-      const personalToday = selfRecords.find((rec) => rec.date === today);
-      setTodayRecord(personalToday || null);
+      const personalToday = selfRecords.find((rec) => {
+        const recDate = new Date(rec.date);
+        const tDate = new Date(today);
+        return (
+          recDate.getFullYear() === tDate.getFullYear() &&
+          recDate.getMonth() === tDate.getMonth() &&
+          recDate.getDate() === tDate.getDate()
+        );
+      }) || null;
+      setTodayRecord(personalToday);
 
       if (isManagerView) {
-        const all = await AttendanceAPI.getAll(selectedDate);
-        setRecords(all || []);
+        // Get all without date filter
+        const allRecords = await AttendanceAPI.getAll();
+
+        // Filter by selected date client side
+        const filtered = filterByDate(allRecords, selectedDate);
+        setRecords(filtered);
       } else {
-        const mine = selfRecords.filter((r) => r.date === selectedDate);
-        setRecords(mine || []);
+        const filtered = filterByDate(selfRecords, selectedDate);
+        setRecords(filtered);
       }
     } catch (err) {
       console.error("Failed to fetch attendance:", err);
@@ -107,12 +122,13 @@ export default function AttendanceManagementPage() {
 
   const handleCheckIn = async () => {
     try {
-      const now = new Date();
-      const payload = {
-        empId: user.empId,
-        empName: user.name,
-        date: now.toISOString().split("T")[0],
-        checkIn: now.toISOString(),
+    const nowUtc = new Date().toISOString(); 
+    const payload = {
+    empId: user.empId,
+    empName: user.name,
+   date: nowUtc.split("T")[0],       
+   checkIn: nowUtc,                  
+
         workMode,
         status: "Present",
         empRole: user.role,
@@ -126,17 +142,17 @@ export default function AttendanceManagementPage() {
   };
 
   const handleCheckOut = async () => {
+    if (!todayRecord) return alert("No check-in found for today.");
     try {
-      if (!todayRecord) return alert("No check-in found for today.");
       await AttendanceAPI.checkOut(todayRecord.id);
       alert("Checked out successfully!");
       load();
     } catch (err) {
-      alert(err.response?.data?.message || "Check-out failed.");
+      alert(err.response?.data?.message || "Check-out failed");
     }
   };
 
-  // Filter all records (from all dates) for a given employee
+  // Filter all records from all dates for selected employee
   const employeeRecords = (empId) => records.filter((rec) => rec.empId === empId);
 
   const handleDownloadCSV = (empId, empName) => {
@@ -144,11 +160,9 @@ export default function AttendanceManagementPage() {
     if (!empRecs.length) return alert("No records to download");
     const rows = empRecs.map((r) => {
       const checkIn = r.checkIn
-        ? new Date(r.checkIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        : "-";
-      const checkOut = r.checkOut
-        ? new Date(r.checkOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        : "-";
+        r.checkIn ? toBackendLocalTime(r.checkIn) : "—"
+    const checkOut = r.checkOut
+       r.checkOut ? toBackendLocalTime(r.checkOut) : "—"
       const workHours =
         r.checkIn && r.checkOut
           ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2)
@@ -204,13 +218,10 @@ export default function AttendanceManagementPage() {
   };
 
   const filtered = useMemo(() => {
-  const q = searchQuery.trim().toLowerCase();
-  if (!q) return records;
-  // Only display records where the entire name matches or includes the search
-  return records.filter(r => r.empName && r.empName.toLowerCase().includes(q));
-}, [records, searchQuery]);
-
-
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return records;
+    return records.filter((r) => r.empName && r.empName.toLowerCase().includes(q));
+  }, [records, searchQuery]);
 
   const summary = useMemo(() => {
     const total = filtered.length;
@@ -394,57 +405,66 @@ export default function AttendanceManagementPage() {
                     {isManagerView && <TableCell>{r.empName}</TableCell>}
                     {isManagerView && <TableCell>{r.empId}</TableCell>}
                     <TableCell>
-                      {r.checkIn
-                        ? new Date(r.checkIn).toLocaleTimeString()
+                   {r.checkIn
+    ? new Date(r.checkIn).toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Kolkata",
+      })
+    : "—"}
+</TableCell>
+
+<TableCell>
+  {r.checkOut
+    ? new Date(r.checkOut).toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Kolkata",
+      })
+    : "—"}
+</TableCell>
+
+
+                    <TableCell>
+                      {r.workHours !== undefined && r.workHours !== null
+                        ? `${r.workHours.toFixed(2)} h`
+                        : r.checkIn && r.checkOut
+                        ? `${(
+                            (new Date(r.checkOut) - new Date(r.checkIn)) /
+                            (1000 * 60 * 60)
+                          ).toFixed(2)} h`
                         : "—"}
                     </TableCell>
                     <TableCell>
-                      {r.checkOut
-                        ? new Date(r.checkOut).toLocaleTimeString()
-                        : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {r.workHours ? `${r.workHours.toFixed(2)} h` : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={getStatusColor(r.status)}
-                      >
+                      <Badge variant="outline" className={getStatusColor(r.status)}>
                         {r.status}
                       </Badge>
                     </TableCell>
                     <TableCell>{r.workMode || "—"}</TableCell>
-
                     <TableCell>
                       <Button
-                        size="sm"
-                        className="mr-2 bg-blue-600 text-white"
-                        onClick={() => {
-                          setSelectedEmpId(r.empId);
-                          setSelectedEmpName(r.empName);
-                          setIsTimesheetOpen(true);
-                        }}
-                      >
-                        Timesheet
-                      </Button>
-                      <DropdownMenu>
-                       <DropdownMenuTrigger asChild>
-                      <Button size="sm" className="bg-blue-600 text-white">
-                      <Download className="mr-1 w-4 h-4" />
-                      Download
+                     size="sm"
+                     className="mr-2 bg-blue-600 hover:bg-blue-700 text-white w-[110px]"
+                     onClick={() => {
+                     setSelectedEmpId(r.empId);
+                     setSelectedEmpName(r.empName);
+                     setIsTimesheetOpen(true);
+                     }}
+                    >
+                    Timesheet
                     </Button>
-                   </DropdownMenuTrigger>
-                   <DropdownMenuContent className="z-[9999]" side="bottom" align="start" style={{ position: "absolute" }}>
-                    <DropdownMenuItem onClick={() => handleDownloadCSV(r.empId, r.empName)}>
-                    Download CSV
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleDownloadPDF(r.empId, r.empName)}>
-                    Download PDF
-                   </DropdownMenuItem>
-                   </DropdownMenuContent>
-                   </DropdownMenu>
 
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild className="w-[110px] bg-grey-50" >
+                          <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                            <Download size={18} className="mr-1"/> Download
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="min-w-[110px] z-[9999] bg-white">
+                          <DropdownMenuItem onClick={() => handleDownloadCSV(r.empId, r.empName)}> Download CSV</DropdownMenuItem>
+                          <DropdownMenuItem  onClick={() => handleDownloadPDF(r.empId, r.empName)}>Download PDF</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))}

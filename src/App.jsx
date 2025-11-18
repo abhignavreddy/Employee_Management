@@ -192,7 +192,7 @@ function App() {
             <Route
               path="/leave-requests"
               element={
-                <ProtectedRoute allowedRoles={["HR"]}>
+                <ProtectedRoute allowedRoles={["HR", "Manager", "CEO"]}>
                   <AppShell>
                     <LeaveRequestsPage />
                   </AppShell>

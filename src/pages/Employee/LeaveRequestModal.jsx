@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
 import { applyLeave } from '../../lib/leaveService';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Button } from '../../components/ui/button';
@@ -7,57 +6,39 @@ import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import { Label } from '../../components/ui/label';
 import { toast } from 'sonner';
+import { useAuth } from '../../contexts/AuthContext';
 
-const LeaveRequestModal = ({ open, onClose, onSubmitSuccess }) => {
+const LeaveRequestModal = ({ open, onClose, onSuccess }) => {
   const { user } = useAuth();
-  const [form, setForm] = useState({
-    typeOfLeave: 'Sick Leave',
-    fromDate: '',
-    toDate: '',
-    reason: ''
-  });
+  const [form, setForm] = useState({ typeOfLeave: 'Sick Leave', fromDate: '', toDate: '', reason: '' });
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm(prev => ({ ...prev, [name]: value }));
-  };
-
-  const validate = () => {
-    if (!form.fromDate || !form.toDate) return false;
-    if (!form.reason.trim()) return false;
-    if (new Date(form.fromDate) > new Date(form.toDate)) return false;
-    return true;
-  };
+  const handleChange = (e) => setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validate()) {
-      toast.error('Please fill all fields and ensure From date is not after To date.');
+    if (!form.fromDate || !form.toDate || !form.reason.trim() || new Date(form.fromDate) > new Date(form.toDate)) {
+      toast.error('Please fill all fields correctly');
       return;
     }
-
+    setLoading(true);
     try {
-      setLoading(true);
-      const payload = {
-        empId: user?.empId || user?.employeeId, // match backend
-        empName: user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+      await applyLeave({
+        empId: user.empId,
+        empName: user.name,
+        empRole: user.role,
         typeOfLeave: form.typeOfLeave,
         fromDate: form.fromDate,
         toDate: form.toDate,
-        reason: form.reason
-      };
-
-      await applyLeave(payload);
-      toast.success('Leave request submitted successfully.');
-      // Call prop callback to notify parent
-      onSubmitSuccess?.();
+        reason: form.reason,
+      });
+      toast.success('Leave submitted!');
+      onSuccess?.();
       onClose();
       setForm({ typeOfLeave: 'Sick Leave', fromDate: '', toDate: '', reason: '' });
-
     } catch (err) {
-      console.error('applyLeave error', err);
-      toast.error('Failed to submit leave request.');
+      console.error(err);
+      toast.error('Failed to submit leave');
     } finally {
       setLoading(false);
     }
@@ -69,54 +50,32 @@ const LeaveRequestModal = ({ open, onClose, onSubmitSuccess }) => {
         <DialogHeader>
           <DialogTitle>Request Leave</DialogTitle>
         </DialogHeader>
-
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label>Type of Leave</Label>
-            <select
-              name="typeOfLeave"
-              value={form.typeOfLeave}
-              onChange={handleChange}
-              className="w-full border rounded p-2"
-              required
-            >
+            <select name="typeOfLeave" value={form.typeOfLeave} onChange={handleChange} className="w-full border rounded p-2">
               <option value="Sick Leave">Sick Leave</option>
               <option value="Casual Leave">Casual Leave</option>
               <option value="Paid Leave">Paid Leave</option>
             </select>
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <div>
               <Label>From</Label>
-              <Input type="date" name="fromDate" value={form.fromDate} onChange={handleChange} required />
+              <Input type="date" name="fromDate" value={form.fromDate} onChange={handleChange}/>
             </div>
             <div>
               <Label>To</Label>
-              <Input type="date" name="toDate" value={form.toDate} onChange={handleChange} required />
+              <Input type="date" name="toDate" value={form.toDate} onChange={handleChange}/>
             </div>
           </div>
-
           <div>
             <Label>Reason</Label>
-            <Textarea
-              name="reason"
-              value={form.reason}
-              onChange={handleChange}
-              placeholder="Reason for leave..."
-              required
-            />
+            <Textarea name="reason" value={form.reason} onChange={handleChange}/>
           </div>
-
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button
-              type="submit"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              disabled={loading}
-            >
-              {loading ? 'Submitting...' : 'Submit Request'}
-            </Button>
+            <Button type="submit" disabled={loading}>{loading ? 'Submitting...' : 'Submit'}</Button>
           </div>
         </form>
       </DialogContent>
