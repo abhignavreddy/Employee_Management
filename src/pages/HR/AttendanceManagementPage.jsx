@@ -3,7 +3,7 @@ import apiClient from "../../lib/apiClient";
 import { useAuth } from "../../contexts/AuthContext";
 import LeaveRequestModal from "../Employee/LeaveRequestModal";
 import TimesheetModal from "../Employee/TimesheetModal";
-import {Plus,Calendar,CheckCircle,AlertTriangle,BarChart3,Search,LogIn,LogOut,Building2,Home,Download,} from "lucide-react";
+import { Plus, Calendar, CheckCircle, AlertTriangle, BarChart3, Search, LogIn, LogOut, Building2, Home, Download, } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -122,13 +122,12 @@ export default function AttendanceManagementPage() {
 
   const handleCheckIn = async () => {
     try {
-    const nowUtc = new Date().toISOString(); 
-    const payload = {
-    empId: user.empId,
-    empName: user.name,
-   date: nowUtc.split("T")[0],       
-   checkIn: nowUtc,                  
-
+      const now = new Date();
+      const payload = {
+        empId: user.empId,
+        empName: user.name,
+        date: now.toISOString().split("T")[0],
+        checkIn: now.toISOString(),
         workMode,
         status: "Present",
         empRole: user.role,
@@ -152,23 +151,26 @@ export default function AttendanceManagementPage() {
     }
   };
 
-  // Filter all records from all dates for selected employee
+  // Filter all records (from all dates) for a given employee
   const employeeRecords = (empId) => records.filter((rec) => rec.empId === empId);
 
   const handleDownloadCSV = (empId, empName) => {
     const empRecs = employeeRecords(empId);
     if (!empRecs.length) return alert("No records to download");
     const rows = empRecs.map((r) => {
+      // CHANGED: Format checkIn and checkOut in IST timezone
       const checkIn = r.checkIn
-        r.checkIn ? toBackendLocalTime(r.checkIn) : "—"
-    const checkOut = r.checkOut
-       r.checkOut ? toBackendLocalTime(r.checkOut) : "—"
+        ? new Date(r.checkIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
+        : "-";
+      const checkOut = r.checkOut
+        ? new Date(r.checkOut).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
+        : "-";
       const workHours =
         r.checkIn && r.checkOut
           ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2)
           : 0;
       return [
-        new Date(r.date).toLocaleDateString(),
+        new Date(r.date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
         checkIn,
         checkOut,
         workHours,
@@ -190,18 +192,19 @@ export default function AttendanceManagementPage() {
     const doc = new jsPDF();
     doc.text(`Attendance Records: ${empName}`, 14, 15);
     const tableData = empRecs.map((r) => {
+      // CHANGED: Format checkIn and checkOut in IST timezone
       const checkIn = r.checkIn
-        ? new Date(r.checkIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        ? new Date(r.checkIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
         : "-";
       const checkOut = r.checkOut
-        ? new Date(r.checkOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        ? new Date(r.checkOut).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
         : "-";
       const workHours =
         r.checkIn && r.checkOut
           ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2)
           : 0;
       return [
-        new Date(r.date).toLocaleDateString(),
+        new Date(r.date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
         checkIn,
         checkOut,
         workHours,
@@ -209,11 +212,7 @@ export default function AttendanceManagementPage() {
         r.workMode || "-",
       ];
     });
-    autoTable(doc, {
-      head: [["Date", "Check In", "Check Out", "Hours", "Status", "Mode"]],
-      body: tableData,
-      startY: 30,
-    });
+    autoTable(doc, { head: [["Date", "Check In", "Check Out", "Hours", "Status", "Mode"]], body: tableData, startY: 30 });
     doc.save(`${empName}_Attendance.pdf`);
   };
 
@@ -280,9 +279,7 @@ export default function AttendanceManagementPage() {
             <Button
               disabled={!canCheckIn}
               onClick={handleCheckIn}
-              className={`flex items-center text-white ${
-                canCheckIn ? "bg-green-600 hover:bg-green-700" : "bg-gray-400"
-              }`}
+              className={`flex items-center text-white ${canCheckIn ? "bg-green-600 hover:bg-green-700" : "bg-gray-400"}`}
             >
               <LogIn className="w-4 h-4 mr-2" />
               Check In
@@ -290,9 +287,7 @@ export default function AttendanceManagementPage() {
             <Button
               disabled={!canCheckOut}
               onClick={handleCheckOut}
-              className={`flex items-center text-white ${
-                canCheckOut ? "bg-red-600 hover:bg-red-700" : "bg-gray-400"
-              }`}
+              className={`flex items-center text-white ${canCheckOut ? "bg-red-600 hover:bg-red-700" : "bg-gray-400"}`}
             >
               <LogOut className="w-4 h-4 mr-2" />
               Check Out
@@ -404,26 +399,27 @@ export default function AttendanceManagementPage() {
                   <TableRow key={r.empId || r.id}>
                     {isManagerView && <TableCell>{r.empName}</TableCell>}
                     {isManagerView && <TableCell>{r.empId}</TableCell>}
+                    {/* CHANGED - checkIn in IST */}
                     <TableCell>
-                   {r.checkIn
-    ? new Date(r.checkIn).toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: "Asia/Kolkata",
-      })
-    : "—"}
-</TableCell>
+                      {r.checkIn
+                        ? new Date(r.checkIn).toLocaleTimeString("en-IN", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            timeZone: "Asia/Kolkata",
+                          })
+                        : "—"}
+                    </TableCell>
 
-<TableCell>
-  {r.checkOut
-    ? new Date(r.checkOut).toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: "Asia/Kolkata",
-      })
-    : "—"}
-</TableCell>
-
+                    {/* CHANGED - checkOut in IST */}
+                    <TableCell>
+                      {r.checkOut
+                        ? new Date(r.checkOut).toLocaleTimeString("en-IN", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            timeZone: "Asia/Kolkata",
+                          })
+                        : "—"}
+                    </TableCell>
 
                     <TableCell>
                       {r.workHours !== undefined && r.workHours !== null
@@ -443,26 +439,30 @@ export default function AttendanceManagementPage() {
                     <TableCell>{r.workMode || "—"}</TableCell>
                     <TableCell>
                       <Button
-                     size="sm"
-                     className="mr-2 bg-blue-600 hover:bg-blue-700 text-white w-[110px]"
-                     onClick={() => {
-                     setSelectedEmpId(r.empId);
-                     setSelectedEmpName(r.empName);
-                     setIsTimesheetOpen(true);
-                     }}
-                    >
-                    Timesheet
-                    </Button>
+                        size="sm"
+                        className="mr-2 bg-blue-600 hover:bg-blue-700 text-white w-[110px]"
+                        onClick={() => {
+                          setSelectedEmpId(r.empId);
+                          setSelectedEmpName(r.empName);
+                          setIsTimesheetOpen(true);
+                        }}
+                      >
+                        Timesheet
+                      </Button>
 
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild className="w-[110px] bg-grey-50" >
+                        <DropdownMenuTrigger asChild className="w-[110px] bg-grey-50">
                           <Button className="bg-blue-600 hover:bg-blue-700 text-white">
-                            <Download size={18} className="mr-1"/> Download
+                            <Download size={18} className="mr-1" /> Download
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent className="min-w-[110px] z-[9999] bg-white">
-                          <DropdownMenuItem onClick={() => handleDownloadCSV(r.empId, r.empName)}> Download CSV</DropdownMenuItem>
-                          <DropdownMenuItem  onClick={() => handleDownloadPDF(r.empId, r.empName)}>Download PDF</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleDownloadCSV(r.empId, r.empName)}>
+                            Download CSV
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleDownloadPDF(r.empId, r.empName)}>
+                            Download PDF
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

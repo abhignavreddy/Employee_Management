@@ -29,6 +29,7 @@ const LeaveRequestsPage = () => {
         res.data.map(r => ({
           ...r,
           empRole: r.emp_role?.toUpperCase(),
+          status: r.status?.toUpperCase(), 
           id: r._id || r.id
         }))
       );
@@ -43,24 +44,23 @@ const LeaveRequestsPage = () => {
   // Role Filtering FIXED
   // ----------------------------------------------------
   const filterRequestsByRole = () => {
-    const cleanRole = (r) => r.emp_role?.toUpperCase(); // DB returns "Employee"
+  if (role === "CEO") return requests;
 
-    if (role === "CEO") return requests;
+  if (role === "HR") {
+    return requests.filter(r =>
+      ["EMPLOYEE", "MANAGER"].includes(r.empRole)
+    );
+  }
 
-    if (role === "HR") {
-      return requests.filter(r =>
-        ["EMPLOYEE", "MANAGER"].includes(cleanRole(r))
-      );
-    }
+  if (role === "MANAGER") {
+    return requests.filter(r =>
+      ["EMPLOYEE", "HR"].includes(r.empRole)
+    );
+  }
 
-    if (role === "MANAGER") {
-      return requests.filter(r =>
-        ["EMPLOYEE", "HR"].includes(cleanRole(r))
-      );
-    }
-
-    return [];
-  };
+  return [];
+};
+ 
 
   const visibleRequests = filterRequestsByRole();
 
@@ -78,6 +78,7 @@ const LeaveRequestsPage = () => {
   // ----------------------------------------------------
   const canApprove = (req) => {
     if (req.empId === user.empId) return false;  // Cannot approve own leave
+    
     if (role === "CEO") return true;            // CEO approves all
     if (role === "HR") return req.emp_role?.toUpperCase() === "EMPLOYEE";
     if (role === "MANAGER") return req.emp_role?.toUpperCase() === "EMPLOYEE";
@@ -89,32 +90,47 @@ const LeaveRequestsPage = () => {
   // Approve / Reject Actions
   // ----------------------------------------------------
   const handleApprove = async (id) => {
-    try {
-      await apiClient.patch(`/leave-approvel/${id}/status`, { status: "APPROVED" });
+  if (!id) return toast.error("Invalid request ID");
 
-      setRequests(prev =>
-        prev.map(r => r.id === id ? { ...r, status: "APPROVED" } : r)
-      );
+  try {
+    const res = await apiClient.patch(`/leave-approvel/${id}/status`, {
+      status: "APPROVED"
+    });
 
-      toast.success("Leave approved!");
-    } catch (error) {
-      toast.error("Approval failed");
-    }
-  };
+    console.log("Approve response:", res.data);
 
-  const handleReject = async (id) => {
-    try {
-      await apiClient.patch(`/leave-approvel/${id}/status`, { status: "REJECTED" });
+    setRequests(prev =>
+      prev.map(r => r.id === id ? { ...r, status: "APPROVED" } : r)
+    );
 
-      setRequests(prev =>
-        prev.map(r => r.id === id ? { ...r, status: "REJECTED" } : r)
-      );
+    toast.success("Leave approved!");
+  } catch (err) {
+    console.error("Approval error:", err);
+    toast.error("Approval failed");
+  }
+};
 
-      toast.success("Leave rejected");
-    } catch (error) {
-      toast.error("Rejection failed");
-    }
-  };
+const handleReject = async (id) => {
+  if (!id) return toast.error("Invalid request ID");
+
+  try {
+    const res = await apiClient.patch(`/leave-approvel/${id}/status`, {
+      status: "REJECTED"
+    });
+
+    console.log("Reject response:", res.data);
+
+    setRequests(prev =>
+      prev.map(r => r.id === id ? { ...r, status: "REJECTED" } : r)
+    );
+
+    toast.success("Leave rejected!");
+  } catch (err) {
+    console.error("Rejection error:", err);
+    toast.error("Rejection failed");
+  }
+};
+
 
 
   // ----------------------------------------------------

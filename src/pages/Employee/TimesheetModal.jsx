@@ -1,72 +1,82 @@
 import React, { useMemo, useState } from "react";
-import {  Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "../../components/ui/select";
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "../../components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "../../components/ui/table";
 
-// Helper: Get Monday of a week
-const getStartOfWeek = (date) => {
+// CHANGED: getStartOfWeek always returns Monday (using IST)
+// Returns Monday of the week for the given date (always Monday-Sunday week)
+function getMonday(date) {
   const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
+  const day = d.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const diff = (day === 0 ? -6 : 1 - day); // if Sunday, move back 6, if Monday, diff=0, else subtract
   d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
+  d.setHours(0,0,0,0);
   return d;
-};
+}
 
-// Generate recent week ranges (Monday to Sunday)
-const getWeeksList = (n = 6) => {
+// Generate week ranges (Monday - Sunday)
+function getWeeksList(n = 6) {
   const today = new Date();
-  const currMonday = getStartOfWeek(today);
+  const currMonday = getMonday(today);
   const weeks = [];
   for (let i = 0; i < n; i++) {
-    const start = new Date(currMonday); 
+    const start = new Date(currMonday);
     start.setDate(currMonday.getDate() - (i * 7));
     const end = new Date(start);
-    end.setDate(start.getDate() + 6);
+    end.setDate(start.getDate() + 6); // Always Sunday
     weeks.push({
-      label: `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+      label: `${start.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })} – ${end.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })}`,
       start,
       end
     });
   }
   return weeks;
-};
+}
 
+// CHANGED: Helper to extract date string in IST ("yyyy-mm-dd")
+const toISTDateString = (date) => {
+  const dateIST = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
+  return dateIST.toISOString().slice(0, 10);
+};
 
 export default function TimesheetModal({ open, onClose, records = [] }) {
   const weeksList = getWeeksList();
-  // null means user has not picked, table shows current week by default
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(null);
-
-  // Table always shows present week data unless user selects one
   const baseWeek = selectedWeekIdx !== null ? weeksList[selectedWeekIdx] : weeksList[0];
   const weekLabel = selectedWeekIdx !== null ? weeksList[selectedWeekIdx].label : "Select Week Range";
 
-  // Attendance rows for the week
+  // CHANGED: Attendance mapped for each Monday–Sunday in IST
   const weekData = useMemo(() => {
-  const days = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(baseWeek.start); // baseWeek.start will be Monday
-    d.setDate(baseWeek.start.getDate() + i);
-    const formatted = d.toISOString().split("T")[0];
-    const dayOfWeek = d.getDay();
-    const rec = records.find(r => (new Date(r.date).toISOString().split("T")[0]) === formatted);
-    let status = rec?.status || "Absent";
-    if (dayOfWeek === 6 || dayOfWeek === 0) {
-      status = "Weekoff";
-    }
-    days.push({
-      date: formatted,
-      status,
-      checkIn: rec?.checkIn || null,
-      checkOut: rec?.checkOut || null,
-      workMode: rec?.workMode || "—",
-      hours: rec?.workHours || 0
-    });
-  }
-  return days;
-}, [records, baseWeek]);
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(baseWeek.start);
+      d.setDate(baseWeek.start.getDate() + i);
+      // Get ISO string in IST for comparison
+      const dayISO = toISTDateString(d);
 
+      // Find record for this day in IST
+      const rec = records.find(r => toISTDateString(new Date(r.date)) === dayISO);
+
+      // Get weekday in IST for weekend marking
+      const dayOfWeek = new Date(d.getTime() + 5.5 * 60 * 60 * 1000).getDay();
+
+      // CHANGED: Only mark "Weekoff" for missing Sat/Sun
+      let status = rec?.status || "Absent";
+      if (!rec && (dayOfWeek === 6 || dayOfWeek === 0)) {
+        status = "Weekoff";
+      }
+
+      days.push({
+        date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Kolkata" }),
+        status,
+        checkIn: rec?.checkIn || null,
+        checkOut: rec?.checkOut || null,
+        workMode: rec?.workMode || "—",
+        hours: rec?.workHours !== undefined && rec?.workHours !== null ? rec.workHours : (rec?.checkIn && rec?.checkOut ? ((new Date(rec.checkOut) - new Date(rec.checkIn)) / (1000 * 60 * 60)) : 0)
+      });
+    }
+    return days;
+  }, [records, baseWeek]);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -108,11 +118,13 @@ export default function TimesheetModal({ open, onClose, records = [] }) {
           <TableBody>
             {weekData.map((d, idx) => (
               <TableRow key={idx}>
+                {/* CHANGED: Always show IST date */}
                 <TableCell>{d.date}</TableCell>
                 <TableCell>{d.status}</TableCell>
-                <TableCell>{d.checkIn ? new Date(d.checkIn).toLocaleTimeString() : "—"}</TableCell>
-                <TableCell>{d.checkOut ? new Date(d.checkOut).toLocaleTimeString() : "—"}</TableCell>
-                <TableCell>{d.hours.toFixed(2)}</TableCell>
+                {/* CHANGED: Always show IST time for check-in/check-out */}
+                <TableCell>{d.checkIn ? new Date(d.checkIn).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit', timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
+                <TableCell>{d.checkOut ? new Date(d.checkOut).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit', timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
+                <TableCell>{d.hours ? d.hours.toFixed(2) : "0.00"}</TableCell>
                 <TableCell>{d.workMode}</TableCell>
               </TableRow>
             ))}

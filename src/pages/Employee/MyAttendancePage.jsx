@@ -1,4 +1,3 @@
-// src/pages/Employee/MyAttendancePage.jsx
 import React, { useEffect, useState, useMemo } from "react";
 import axios from "axios";
 import { jsPDF } from "jspdf";
@@ -31,43 +30,58 @@ export default function MyAttendancePage() {
   const [workMode, setWorkMode] = useState("Office");
   const [todayRecord, setTodayRecord] = useState(null);
   const [isOnLeaveToday, setIsOnLeaveToday] = useState(false);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
 
   // Load attendance and leave data
   const load = async () => {
-    if (!user?.empId) return;
+  if (!user?.empId) return;
+
+  try {
+    const data = await AttendanceAPI.getByEmpId(user.empId);
+    
+    // Fetch leave requests
+    let leaves = [];
     try {
-      const data = await AttendanceAPI.getByEmpId(user.empId);
-      setRecords(data || []);
-
-      // Load approved leave data
-      try {
-        const leaveRes = await api.get(`/api/leave/employee/${user.empId}`);
-        const leaves = leaveRes.data || [];
-
-        const today = new Date().toISOString().split("T")[0];
-
-        // Check if today falls under any approved leave
-        const onLeave = leaves.some(l =>
-          l.status === "Approved" &&
-          today >= l.startDate &&
-          today <= l.endDate
-        );
-
-        setIsOnLeaveToday(onLeave);
-      } catch (err) {
-        console.error("Failed to load leave data:", err);
-        setIsOnLeaveToday(false);
-      }
-
-      const today = new Date().toISOString().split("T")[0];
-      const todayRec = data.find((r) => r.date === today);
-      setTodayRecord(todayRec || null);
+      const leaveRes = await api.get(`/api/leave-approvel/employee/${user.empId}`);
+      leaves = leaveRes.data || [];
     } catch (err) {
-      console.error(err);
+      console.error("Failed to load leave data:", err);
+      leaves = [];
     }
-  };
+
+    const today = new Date().toISOString().split("T")[0];
+
+    // Is employee on leave today? (boolean)
+    const onLeaveToday = leaves.some(l =>
+      l.status?.toUpperCase() === "APPROVED" &&
+      today >= l.fromDate &&
+      today <= l.toDate
+    );
+    setIsOnLeaveToday(onLeaveToday);
+
+    // Map attendance records to mark Leave for table
+    const updatedRecords = data.map(r => {
+      const isOnLeave = leaves.some(l =>
+        l.status?.toUpperCase() === "APPROVED" &&
+        r.date >= l.fromDate &&
+        r.date <= l.toDate
+      );
+      return { ...r, status: isOnLeave ? "Leave" : r.status };
+    });
+
+    setRecords(updatedRecords);
+
+    // Optional: set today's record for check-in/out
+    const todayRec = updatedRecords.find(r => r.date === today);
+    setTodayRecord(todayRec || null);
+
+  } catch (err) {
+    console.error(err);
+  }
+};
+
 
   useEffect(() => { load(); }, [user]);
 
@@ -117,10 +131,15 @@ export default function MyAttendancePage() {
   const downloadCSV = () => {
     if (!sortedRecords.length) return alert("No records to download");
     const rows = sortedRecords.map(r => {
-      const checkIn = r.checkIn ? new Date(r.checkIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
-      const checkOut = r.checkOut ? new Date(r.checkOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
+      // CHANGED: Convert checkIn and checkOut to IST using toLocaleTimeString with timeZone: 'Asia/Kolkata'
+      const checkIn = r.checkIn
+        ? new Date(r.checkIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
+        : "-";
+      const checkOut = r.checkOut
+        ? new Date(r.checkOut).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
+        : "-";
       const workHours = r.checkIn && r.checkOut ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2) : 0;
-      return [new Date(r.date).toLocaleDateString(), checkIn, checkOut, workHours, r.status, r.workMode || "-"].join(",");
+      return [new Date(r.date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }), checkIn, checkOut, workHours, r.status, r.workMode || "-"].join(",");
     });
     const csvContent = "Date,Check In,Check Out,Hours,Status,Work Mode\n" + rows.join("\n");
     const blob = new Blob([csvContent], { type: "text/csv" });
@@ -132,10 +151,15 @@ export default function MyAttendancePage() {
     const doc = new jsPDF();
     doc.text("Attendance Records", 14, 15);
     const tableData = sortedRecords.map(r => {
-      const checkIn = r.checkIn ? new Date(r.checkIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
-      const checkOut = r.checkOut ? new Date(r.checkOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-";
+      // CHANGED: Convert checkIn and checkOut to IST
+      const checkIn = r.checkIn
+        ? new Date(r.checkIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
+        : "-";
+      const checkOut = r.checkOut
+        ? new Date(r.checkOut).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
+        : "-";
       const workHours = r.checkIn && r.checkOut ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2) : 0;
-      return [new Date(r.date).toLocaleDateString(), checkIn, checkOut, workHours, r.status, r.workMode || "-"];
+      return [new Date(r.date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }), checkIn, checkOut, workHours, r.status, r.workMode || "-"];
     });
     autoTable(doc, { head: [["Date", "Check In", "Check Out", "Hours", "Status", "Mode"]], body: tableData, startY: 30 });
     doc.save("Attendance.pdf");
@@ -185,8 +209,8 @@ export default function MyAttendancePage() {
             </SelectItem>
           </SelectContent>
         </Select>
-        <Button onClick={handleCheckIn} disabled={!canCheckIn} className={`text-white ${canCheckIn ? "bg-green-600 hover:bg-green-700":"bg-gray-400"}`}><LogIn className="w-4 h-4 mr-1"/>Check In</Button>
-        <Button onClick={handleCheckOut} disabled={!canCheckOut} className={`text-white ${canCheckOut ? "bg-red-600 hover:bg-red-700":"bg-gray-400"}`}><LogOut className="w-4 h-4 mr-1"/>Check Out</Button>
+        <Button onClick={handleCheckIn} disabled={!canCheckIn} className={`text-white ${canCheckIn ? "bg-green-600 hover:bg-green-700" : "bg-gray-400"}`}><LogIn className="w-4 h-4 mr-1" />Check In</Button>
+        <Button onClick={handleCheckOut} disabled={!canCheckOut} className={`text-white ${canCheckOut ? "bg-red-600 hover:bg-red-700" : "bg-gray-400"}`}><LogOut className="w-4 h-4 mr-1" />Check Out</Button>
       </div>
 
       {/* ATTENDANCE TABLE */}
@@ -208,17 +232,21 @@ export default function MyAttendancePage() {
               {sortedRecords.map((r) => {
                 const checkIn = r.checkIn ? new Date(r.checkIn) : null;
                 const checkOut = r.checkOut ? new Date(r.checkOut) : null;
-                const workHours = checkIn && checkOut ? ((checkOut - checkIn)/(1000*60*60)).toFixed(2) : 0;
+                const workHours = checkIn && checkOut ? ((checkOut - checkIn) / (1000 * 60 * 60)).toFixed(2) : 0;
                 return (
                   <TableRow key={r.id}>
-                    <TableCell>{new Date(r.date).toLocaleDateString()}</TableCell>
-                    <TableCell>{checkIn ? checkIn.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "—"}</TableCell>
-                    <TableCell>{checkOut ? checkOut.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "—"}</TableCell>
+                    {/* CHANGED: Display date with explicit IST timezone */}
+                    <TableCell>{new Date(r.date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</TableCell>
+
+                    {/* CHANGED: Display check-in/out times with IST timezone */}
+                    <TableCell>{checkIn ? checkIn.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
+                    <TableCell>{checkOut ? checkOut.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
+
                     <TableCell>{workHours ? `${workHours} h` : "—"}</TableCell>
                     <TableCell><Badge variant="outline" className={getStatusColor(r.status)}>{r.status}</Badge></TableCell>
                     <TableCell>{r.workMode || "—"}</TableCell>
                   </TableRow>
-                );
+                )
               })}
             </TableBody>
           </Table>
@@ -228,9 +256,9 @@ export default function MyAttendancePage() {
       {/* TIMESHEET BUTTON & DOWNLOAD */}
       <div className="flex justify-end gap-3 mt-4">
         <DropdownMenu>
-          <DropdownMenuTrigger asChild  className=" bg-grey-50">
+          <DropdownMenuTrigger asChild className=" bg-grey-50">
             <Button className="bg-blue-600 hover:bg-blue-700 text-white">
-              <Download size={18} className="mr-1"/> Download
+              <Download size={18} className="mr-1" /> Download
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="bg-white">
@@ -246,11 +274,9 @@ export default function MyAttendancePage() {
 
       <TimesheetModal open={isTimesheetOpen} onClose={() => setIsTimesheetOpen(false)} records={sortedRecords} />
 
-      <LeaveRequestModal 
-        open={isLeaveModalOpen} 
-        onClose={() => setIsLeaveModalOpen(false)} 
-        user={user} 
-        onSubmitSuccess={load}  // Refresh data after submission
+      <LeaveRequestModal
+        open={isLeaveModalOpen}
+        onClose={() => setIsLeaveModalOpen(false)}
       />
     </div>
   );
