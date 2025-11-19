@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText, Image, Paperclip } from "lucide-react";
 import { apiGet } from "../../lib/api";
+
 function Modal({ open, onClose, children }) {
   if (!open) return null;
   return (
@@ -24,6 +25,50 @@ function Modal({ open, onClose, children }) {
   );
 }
 
+/**
+ * Helpers to parse and format dates robustly:
+ * - Accepts numbers (epoch ms), ISO strings, and timezone-less ISO strings.
+ * - If a string looks like "YYYY-MM-DDTHH:mm:ss" without timezone info, we treat it as UTC
+ *   (append 'Z') to avoid the browser interpreting it as local.
+ */
+function parseDate(value) {
+  if (!value) return null;
+
+  // Epoch milliseconds as number or numeric string
+  if (typeof value === "number" || /^\d+$/.test(String(value))) {
+    return new Date(Number(value));
+  }
+
+  if (typeof value === "string") {
+    // Match ISO without timezone: 2025-11-17T06:30:00 or 2025-11-17T06:30:00.000
+    const tzLessIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+    if (tzLessIso.test(value)) {
+      // treat as UTC to avoid browser local-shift
+      return new Date(value + "Z");
+    }
+    // otherwise let Date parse (handles strings with Z or offsets)
+    return new Date(value);
+  }
+
+  // Fallback
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDate(value) {
+  const d = parseDate(value);
+  if (!d) return "—";
+
+  // Use user's timeZone detected from the browser; fallback to UTC
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  // Localized medium date + short time
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone,
+  }).format(d);
+}
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState([]);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -32,48 +77,45 @@ export default function ProjectsPage() {
   const navigate = useNavigate();
 
   const load = async () => {
-  try {
-    const res = await apiGet(`/client-onboard`);
-    if (!res.ok) throw new Error("Failed to load projects");
+    try {
+      const res = await apiGet(`/client-onboard`);
+      if (!res.ok) throw new Error("Failed to load projects");
 
-    const data = await res.json();
-    console.log("🔍 Fetched projects data:", data); // 👈 Add this line
+      const data = await res.json();
+      console.log("🔍 Fetched projects data:", data);
 
-    const content = Array.isArray(data) ? data : data?.content || [];
-    setProjects(content);
-  } catch (err) {
-    console.error("❌ Failed to load projects:", err);
-    setProjects([]);
-  } finally {
-    setLoading(false);
-  }
-};
-
+      const content = Array.isArray(data) ? data : data?.content || [];
+      setProjects(content);
+    } catch (err) {
+      console.error("❌ Failed to load projects:", err);
+      setProjects([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    load(); // [web:18]
+    load();
   }, []);
 
   const openDetail = async (id) => {
     try {
-      const res = await apiGet(`/client-onboard/${id}`); // [web:12]
-      if (!res.ok) return; // [web:12]
-      const p = await res.json(); // [web:12]
+      const res = await apiGet(`/client-onboard/${id}`);
+      if (!res.ok) return;
+      const p = await res.json();
       setSelected(p);
       setDetailOpen(true);
     } catch (err) {
-      console.error("Failed to load project details", err); // [web:12]
+      console.error("Failed to load project details", err);
     }
   };
 
   const openCreateIntake = () => {
-    window.open("/client-intake", "_blank", "noopener"); // [web:10]
+    window.open("/client-intake", "_blank", "noopener");
   };
 
   if (loading) {
-    return (
-      <div className="p-6 text-center text-zinc-600">Loading projects...</div> // [web:6]
-    );
+    return <div className="p-6 text-center text-zinc-600">Loading projects...</div>;
   }
 
   return (
@@ -121,8 +163,7 @@ export default function ProjectsPage() {
               <span>Owner: {p.owner || "—"}</span>
             </div>
             <div className="text-xs text-zinc-400 mt-1">
-              Created:{" "}
-              {p.createdAt ? new Date(p.createdAt).toLocaleString() : "—"}
+              Created: {p.createdAt ? formatDate(p.createdAt) : "—"}
             </div>
           </div>
         ))}
@@ -161,10 +202,18 @@ export default function ProjectsPage() {
             <div>
               <h3 className="font-semibold text-gray-800 mb-1">Contact Information</h3>
               <div className="text-sm text-gray-700 space-y-1">
-                <p><strong>Name:</strong> {selected.contactInfo?.contactName || "—"}</p>
-                <p><strong>Email:</strong> {selected.contactInfo?.contactEmail || "—"}</p>
-                <p><strong>Number:</strong> {selected.contactInfo?.contactNumber || "—"}</p>
-                <p><strong>Address:</strong> {selected.contactInfo?.address || "—"}</p>
+                <p>
+                  <strong>Name:</strong> {selected.contactInfo?.contactName || "—"}
+                </p>
+                <p>
+                  <strong>Email:</strong> {selected.contactInfo?.contactEmail || "—"}
+                </p>
+                <p>
+                  <strong>Number:</strong> {selected.contactInfo?.contactNumber || "—"}
+                </p>
+                <p>
+                  <strong>Address:</strong> {selected.contactInfo?.address || "—"}
+                </p>
               </div>
             </div>
 
@@ -172,14 +221,30 @@ export default function ProjectsPage() {
             <div>
               <h3 className="font-semibold text-gray-800 mb-1">Technical Details</h3>
               <div className="grid grid-cols-2 gap-2 text-sm text-gray-700">
-                <p><strong>Frontend:</strong> {selected.technical?.frontend || "—"}</p>
-                <p><strong>Backend:</strong> {selected.technical?.backend || "—"}</p>
-                <p><strong>Database:</strong> {selected.technical?.dbChoice || "—"}</p>
-                <p><strong>Hosting:</strong> {selected.technical?.hosting || "—"}</p>
-                <p><strong>Frameworks:</strong> {selected.technical?.frameworks || "—"}</p>
-                <p><strong>Deploy Model:</strong> {selected.technical?.deployModel || "—"}</p>
-                <p><strong>Release Strategy:</strong> {selected.technical?.releaseStrategy || "—"}</p>
-                <p><strong>Support SLA:</strong> {selected.technical?.supportSla || "—"}</p>
+                <p>
+                  <strong>Frontend:</strong> {selected.technical?.frontend || "—"}
+                </p>
+                <p>
+                  <strong>Backend:</strong> {selected.technical?.backend || "—"}
+                </p>
+                <p>
+                  <strong>Database:</strong> {selected.technical?.dbChoice || "—"}
+                </p>
+                <p>
+                  <strong>Hosting:</strong> {selected.technical?.hosting || "—"}
+                </p>
+                <p>
+                  <strong>Frameworks:</strong> {selected.technical?.frameworks || "—"}
+                </p>
+                <p>
+                  <strong>Deploy Model:</strong> {selected.technical?.deployModel || "—"}
+                </p>
+                <p>
+                  <strong>Release Strategy:</strong> {selected.technical?.releaseStrategy || "—"}
+                </p>
+                <p>
+                  <strong>Support SLA:</strong> {selected.technical?.supportSla || "—"}
+                </p>
               </div>
             </div>
 
@@ -187,9 +252,15 @@ export default function ProjectsPage() {
             <div>
               <h3 className="font-semibold text-gray-800 mb-1">UI / UX</h3>
               <div className="text-sm text-gray-700 space-y-1">
-                <p><strong>Brand Colors:</strong> {selected.uiux?.brandColors || "—"}</p>
-                <p><strong>Wireframes:</strong> {selected.uiux?.hasWireframes ? "Yes" : "No"}</p>
-                <p><strong>Responsive:</strong> {selected.uiux?.responsive ? "Yes" : "No"}</p>
+                <p>
+                  <strong>Brand Colors:</strong> {selected.uiux?.brandColors || "—"}
+                </p>
+                <p>
+                  <strong>Wireframes:</strong> {selected.uiux?.hasWireframes ? "Yes" : "No"}
+                </p>
+                <p>
+                  <strong>Responsive:</strong> {selected.uiux?.responsive ? "Yes" : "No"}
+                </p>
               </div>
             </div>
 
@@ -213,9 +284,13 @@ export default function ProjectsPage() {
                     // Fallback URL if fileUrl is missing
                     const baseUrl = "http://localhost:8083/uploads";
                     const resolvedUrl =
-                      f.fileUrl && f.fileUrl.trim() !== ""
-                        ? f.fileUrl
-                        : `${baseUrl}/${f.fileName}`;
+                      f.fileUrl && f.fileUrl.trim() !== "" ? f.fileUrl : `${baseUrl}/${f.fileName}`;
+
+                    // guard fileSize
+                    const kb =
+                      typeof f.fileSize === "number" && !isNaN(f.fileSize)
+                        ? (f.fileSize / 1024).toFixed(1)
+                        : "—";
 
                     return (
                       <li
@@ -228,8 +303,7 @@ export default function ProjectsPage() {
                           <div>
                             <p className="font-medium">{f.fileName}</p>
                             <p className="text-xs text-gray-500">
-                              {f.fileType || "Unknown type"} •{" "}
-                              {(f.fileSize / 1024).toFixed(1)} KB
+                              {f.fileType || "Unknown type"} • {kb} KB
                             </p>
                           </div>
                         </div>
@@ -243,11 +317,14 @@ export default function ProjectsPage() {
               )}
             </div>
 
-
             {/* Dates */}
             <div className="text-xs text-gray-500 border-t pt-2">
-              <p>Created: {selected.createdAt ? new Date(selected.createdAt).toLocaleString() : "—"}</p>
-              <p>Updated: {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : "—"}</p>
+              <p>
+                Created: {selected.createdAt ? formatDate(selected.createdAt) : "—"}
+              </p>
+              <p>
+                Updated: {selected.updatedAt ? formatDate(selected.updatedAt) : "—"}
+              </p>
             </div>
           </div>
         )}

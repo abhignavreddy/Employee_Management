@@ -16,7 +16,7 @@ import { Eye, EyeOff, Building, Lock, Mail } from 'lucide-react';
 
 const Login = () => {
   const { login, isAuthenticated } = useAuth();
-  const [emailOrEmpId, setEmailOrEmpId] = useState('');
+  const [EmpId, setEmpId] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -31,7 +31,7 @@ const Login = () => {
     setError('');
     setLoading(true);
     try {
-      const result = await login(emailOrEmpId, password);
+      const result = await login(EmpId, password);
       if (!result.success) {
         setError(result.error || 'Invalid Employee ID or Password');
       }
@@ -137,15 +137,15 @@ const Login = () => {
                 )}
 
                 <div className="space-y-2">
-                  <Label htmlFor="emailOrEmpId">Email or Employee ID</Label>
+                  <Label htmlFor="EmpId">Employee ID</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                     <Input
-                      id="emailOrEmpId"
+                      id="EmpId"
                       type="text"
-                      placeholder="EMP-1001 or your.email@company.com"
-                      value={emailOrEmpId}
-                      onChange={(e) => setEmailOrEmpId(e.target.value)}
+                      placeholder="EMPID"
+                      value={EmpId}
+                      onChange={(e) => setEmpId(e.target.value)}
                       className="pl-10"
                       required
                     />

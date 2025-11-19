@@ -21,6 +21,43 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
+  useEffect(() => {
+  if (!user) return; // run idle timer ONLY when logged in
+
+  let timeout;
+
+  const logoutAndRedirect = () => {
+    logout();
+    window.location.href = "/login";  // force redirect
+  };
+
+  const resetTimer = () => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      console.log("⏳ Auto logout due to inactivity");
+      logoutAndRedirect();
+    }, 10 * 60 * 1000); // 10 minutes
+  };
+
+  // Track all user interactions
+  window.addEventListener("mousemove", resetTimer);
+  window.addEventListener("keydown", resetTimer);
+  window.addEventListener("click", resetTimer);
+  window.addEventListener("scroll", resetTimer);
+
+  resetTimer(); // start idle timer
+
+  return () => {
+    clearTimeout(timeout);
+    window.removeEventListener("mousemove", resetTimer);
+    window.removeEventListener("keydown", resetTimer);
+    window.removeEventListener("click", resetTimer);
+    window.removeEventListener("scroll", resetTimer);
+  };
+}, [user]);
+
+
+
   // 🧠 MAIN LOGIN FUNCTION — uses backend
   const login = async (empIdOrEmail, password) => {
     if (!empIdOrEmail || !password) {

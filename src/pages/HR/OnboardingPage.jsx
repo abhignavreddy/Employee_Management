@@ -63,7 +63,7 @@ const generateEmpId = (firstName, lastName) => {
   const f = firstName.trim().toUpperCase().slice(0, 4);
   const l = lastName?.trim()?.toUpperCase()?.charAt(0) || "";
   const num = Math.floor(100 + Math.random() * 900);
-  return `EMP-${f}${l}${num}`;
+  return `${f}${l}${num}`;
 };
 const emptyCreate = {
   firstName: "",
@@ -193,6 +193,22 @@ export default function OnboardingPage() {
       setCreateSubmitting(false);
     }
   };
+  // Helper component for nested fields (address, bankDetails, emergencyContact)
+  const InputField = ({ label, field, obj }) => (
+    <div>
+      <Label>{label}</Label>
+      <Input
+        value={editForm[obj]?.[field] || ""}
+        onChange={(e) =>
+          setEditForm((prev) => ({
+            ...prev,
+            [obj]: { ...prev[obj], [field]: e.target.value },
+          }))
+        }
+      />
+    </div>
+  );
+
 
   // ========= EDIT EMPLOYEE =========
   const openEdit = (employee) => {
@@ -263,6 +279,68 @@ export default function OnboardingPage() {
       setOffbSubmitting(false);
     }
   };
+
+  const searchOffboardEmp = async () => {
+    if (!empIdQuery.trim()) {
+      toast({
+        title: "Enter a value",
+        description: "Search using Emp ID or Name",
+      });
+      return;
+    }
+
+    const query = empIdQuery.toLowerCase();
+
+    // Search in existing list (fast)
+    const found = employees.find(
+      (e) =>
+        e.empId.toLowerCase() === query ||
+        e.firstName.toLowerCase().includes(query) ||
+        e.lastName.toLowerCase().includes(query)
+    );
+
+    if (found) {
+      setOffbTarget(found);
+      return;
+    }
+
+    // optional fallback → backend search
+    try {
+      const res = await EmployeeApi.getByEmpId(empIdQuery.trim());
+      setOffbTarget(res);
+    } catch {
+      setOffbTarget(null);
+      toast({ title: "Not found", description: "No employee matches your search." });
+    }
+    setSearchResults([]);
+  };
+
+  const [searchResults, setSearchResults] = useState([]);
+
+  const handleLiveSearch = (value) => {
+    if (!value.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const q = value.toLowerCase();
+
+    const results = employees.filter((emp) =>
+      emp.empId.toLowerCase().includes(q) ||
+      emp.firstName.toLowerCase().includes(q) ||
+      emp.lastName.toLowerCase().includes(q)
+    );
+
+    setSearchResults(results.slice(0, 8)); // show top 8 results
+  };
+
+  const selectEmployee = (emp) => {
+  setOffbTarget(emp);
+  setEmpIdQuery(`${emp.firstName} ${emp.lastName} (${emp.empId})`);
+  setSearchResults([]); // close dropdown
+  };
+
+
 
   // ========= UI =========
   return (
@@ -622,9 +700,7 @@ export default function OnboardingPage() {
           <CardContent className="p-4 flex justify-between items-center">
             <div>
               <p className="text-sm text-gray-600">Active Employees</p>
-              <p className="text-2xl font-bold text-blue-600">
-                {employees.length}
-              </p>
+              <p className="text-2xl font-bold text-blue-600">{employees.length}</p>
             </div>
             <UserPlus className="w-6 h-6 text-blue-600" />
           </CardContent>
@@ -634,139 +710,341 @@ export default function OnboardingPage() {
           <CardContent className="p-4 flex justify-between items-center">
             <div>
               <p className="text-sm text-gray-600">Onboarded This Month</p>
-              <p className="text-2xl font-bold text-green-600">
-                {onboardedThisMonth}
-              </p>
+              <p className="text-2xl font-bold text-green-600">{onboardedThisMonth}</p>
             </div>
             <CheckCircle className="w-6 h-6 text-green-600" />
           </CardContent>
         </Card>
       </div>
 
-      {/* Table */}
-      <Card>
-        <CardHeader className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-          <div>
-            <CardTitle>Employees</CardTitle>
-            <CardDescription>Manage employee data</CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Search by Emp ID"
-              value={empIdQuery}
-              onChange={(e) => setEmpIdQuery(e.target.value)}
-              className="w-48"
-            />
-            <Button
-              variant="outline"
-              onClick={async () => {
-                if (!empIdQuery.trim()) return loadList(0);
-                try {
-                  const res = await EmployeeApi.getByEmpId(empIdQuery.trim());
-                  setEmployees([res]);
-                } catch {
-                  toast({ title: "Not found", description: "Employee not found." });
-                }
-              }}
-            >
-              Find
-            </Button>
-            <Button variant="outline" onClick={() => loadList(0)}>
-              Refresh
-            </Button>
-          </div>
-        </CardHeader>
+      {/* ======= TABS SECTION (PLACED EXACTLY WHERE YOU WANTED) ======= */}
+      {/* ======= TABS SECTION ======= */}
+      <Tabs defaultValue="onboarding" className="w-full mt-8">
 
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b">
-                  <th className="py-3 pr-3">Name</th>
-                  <th className="py-3 pr-3">Emp ID</th>
-                  <th className="py-3 pr-3">Email</th>
-                  <th className="py-3 pr-3">Role</th>
-                  <th className="py-3 pr-3">Phone</th>
-                  <th className="py-3 pr-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((e) => (
-                  <tr key={e.id} className="border-b last:border-0">
-                    <td className="py-3 pr-3">
-                      {[e.firstName, e.lastName].filter(Boolean).join(" ") || "—"}
-                    </td>
-                    <td className="py-3 pr-3">
-                      <Badge variant="outline">{e.empId}</Badge>
-                    </td>
-                    <td className="py-3 pr-3">{e.email}</td>
-                    <td className="py-3 pr-3">{e.empRole}</td>
-                    <td className="py-3 pr-3">{e.phoneNumber}</td>
-                    <td className="py-3 pr-3">
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => openEdit(e)}>
-                          <Pencil className="w-4 h-4 mr-1" /> Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => {
-                            setOffbTarget(e);
-                            setOffbConfirmOpen(true);
-                          }}
-                        >
-                          Offboard
-                        </Button>
+        {/* === TAB HEADERS WITH ICONS + BLUE ACTIVE BAR === */}
+        <TabsList className="flex w-fit border-b pb-0 gap-2">
+          <TabsTrigger
+            value="onboarding"
+            className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 
+                      data-[state=active]:text-blue-600 px-4 py-2 flex items-center gap-2 rounded-none"
+          >
+            <UserPlus className="w-4 h-4" />
+            Onboarding
+          </TabsTrigger>
+
+          <TabsTrigger
+            value="offboarding"
+            className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 
+                      data-[state=active]:text-blue-600 px-4 py-2 flex items-center gap-2 rounded-none"
+          >
+            <CheckCircle className="w-4 h-4" />
+            Offboarding
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ===================== ONBOARDING TAB ===================== */}
+        <TabsContent value="onboarding" className="mt-6">
+
+          {/* TABLE CARD */}
+          <Card>
+            <CardHeader className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+              <div>
+                <CardTitle>Employees</CardTitle>
+                <CardDescription>Manage employee data</CardDescription>
+              </div>
+
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Search by Emp ID"
+                  value={empIdQuery}
+                  onChange={(e) => setEmpIdQuery(e.target.value)}
+                  className="w-48"
+                />
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    if (!empIdQuery.trim()) return loadList(0);
+                    try {
+                      const res = await EmployeeApi.getByEmpId(empIdQuery.trim());
+                      setEmployees([res]);
+                    } catch {
+                      toast({ title: "Not found", description: "Employee not found." });
+                    }
+                  }}
+                >
+                  Find
+                </Button>
+                <Button variant="outline" onClick={() => loadList(0)}>
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left border-b">
+                      <th className="py-3 pr-3">Name</th>
+                      <th className="py-3 pr-3">Emp ID</th>
+                      <th className="py-3 pr-3">Email</th>
+                      <th className="py-3 pr-3">Role</th>
+                      <th className="py-3 pr-3">Phone</th>
+                      <th className="py-3 pr-3">Actions</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {employees.map((e) => (
+                      <tr key={e.id} className="border-b">
+                        <td className="py-3 pr-3">
+                          {[e.firstName, e.lastName].filter(Boolean).join(" ")}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <Badge variant="outline">{e.empId}</Badge>
+                        </td>
+                        <td className="py-3 pr-3">{e.email}</td>
+                        <td className="py-3 pr-3">{e.empRole}</td>
+                        <td className="py-3 pr-3">{e.phoneNumber}</td>
+
+                        <td className="py-3 pr-3">
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => openEdit(e)}>
+                              <Pencil className="w-4 h-4 mr-1" /> Edit
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ===== Pagination ===== */}
+              <div className="flex justify-between items-center mt-5">
+                <Button
+                  variant="outline"
+                  disabled={page === 0}
+                  onClick={() => loadList(page - 1)}
+                >
+                  Previous
+                </Button>
+
+                <span className="text-sm">
+                  Page {page + 1} of {totalPages}
+                </span>
+
+                <Button
+                  variant="outline"
+                  disabled={page + 1 >= totalPages}
+                  onClick={() => loadList(page + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ===================== OFFBOARDING TAB ===================== */}
+        <TabsContent value="offboarding" className="mt-6">
+          <Card className="max-w-xl mx-auto"> {/* Center the form */}
+            <CardHeader>
+              <CardTitle>Offboarding</CardTitle>
+              <CardDescription>Submit exit details, upload documents, and finalize offboarding.</CardDescription>
+            </CardHeader>
+
+            <CardContent className="space-y-6">
+
+              {/* ===== Search Field with Live Suggestions ===== */}
+              <div className="space-y-1 relative">
+                <Label>Search Employee (ID or Name)</Label>
+
+                <Input
+                  placeholder="Start typing to search..."
+                  value={empIdQuery}
+                  onChange={(e) => {
+                    setEmpIdQuery(e.target.value);
+                    handleLiveSearch(e.target.value);
+                  }}
+                />
+
+                {/* Suggestions Dropdown */}
+                {searchResults.length > 0 && (
+                  <div className="absolute z-20 mt-1 w-full bg-white border rounded-md shadow-lg max-h-56 overflow-y-auto">
+                    {searchResults.map((emp) => (
+                      <div
+                        key={emp.id}
+                        className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between"
+                        onClick={() => selectEmployee(emp)}
+                      >
+                        <span>{emp.firstName} {emp.lastName}</span>
+                        <span className="text-gray-500 text-sm">{emp.empId}</span>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-      {/* Edit Dialog */}
+
+              {/* Last Day */}
+              <div className="space-y-1">
+                <Label>Last Working Day</Label>
+                <Input
+                  type="date"
+                  value={offbInfo.lastDay}
+                  onChange={(e) => setOffbInfo((p) => ({ ...p, lastDay: e.target.value }))}
+                />
+              </div>
+
+              {/* Reason */}
+              <div className="space-y-1">
+                <Label>Reason</Label>
+                <textarea
+                  value={offbInfo.reason}
+                  onChange={(e) => setOffbInfo((p) => ({ ...p, reason: e.target.value }))}
+                  className="w-full border px-3 py-2 rounded-md"
+                  placeholder="Reason for offboarding..."
+                />
+              </div>
+
+              {/* === File Uploads === */}
+              <div className="space-y-1">
+                <Label>Upload Documents</Label>
+                <Input
+                  type="file"
+                  multiple
+                  onChange={(e) => setOffbInfo((p) => ({ ...p, files: e.target.files }))}
+                  className="cursor-pointer"
+                />
+
+                {/* File preview */}
+                {offbInfo.files && (
+                  <ul className="text-sm text-gray-600 mt-2 space-y-1">
+                    {[...offbInfo.files].map((f, i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        📄 {f.name}  
+                        <span className="text-xs text-gray-400">
+                          ({(f.size / 1024).toFixed(1)} KB)
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Submit button */}
+              <Button
+                className="bg-red-600 text-white w-full"
+                disabled={offbSubmitting}
+                onClick={async () => {
+                  if (!offbTarget) {
+                    toast({ title: "Select an employee", description: "Choose an employee first." });
+                    return;
+                  }
+                  if (!offbInfo.lastDay || !offbInfo.reason) {
+                    toast({
+                      title: "Missing details",
+                      description: "Fill out all required fields.",
+                    });
+                    return;
+                  }
+
+                  setOffbSubmitting(true);
+                  try {
+                    // Build FormData for file upload
+                    const formData = new FormData();
+                    formData.append("lastDay", offbInfo.lastDay);
+                    formData.append("reason", offbInfo.reason);
+
+                    if (offbInfo.files) {
+                      [...offbInfo.files].forEach((file) => formData.append("files", file));
+                    }
+
+                    // Use your backend API (adjust URL if needed)
+                    await apiClient.post(
+                      `/employees/${offbTarget.id}/offboard?deletedBy=HR`,
+                      formData,
+                      {
+                        headers: { "Content-Type": "multipart/form-data" },
+                      }
+                    );
+
+                    toast({
+                      title: "Offboarded Successfully",
+                      description: `${offbTarget.empId} has been offboarded.`,
+                    });
+
+                    setOffbTarget(null);
+                    setOffbInfo({ lastDay: "", reason: "", files: null });
+                    await loadList(page);
+                  } catch (err) {
+                    toast({ title: "Error", description: "Failed to offboard employee" });
+                  } finally {
+                    setOffbSubmitting(false);
+                  }
+                }}
+              >
+                {offbSubmitting ? "Processing..." : "Offboard Employee"}
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+
+      {/* ========== EDIT EMPLOYEE DIALOG (UNCHANGED) ========== */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto border-white rounded-lg p-6">
           <DialogHeader>
             <DialogTitle>Edit Employee</DialogTitle>
             <DialogDescription>Modify employee details.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={submitEdit} className="space-y-4">
+
+          <form onSubmit={submitEdit} className="space-y-6">
+            {/* Basic Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>First Name</Label>
+              <div>
+                <Label>First Name *</Label>
                 <Input
+                  required
                   value={editForm.firstName || ""}
                   onChange={(e) => handleEditChange("firstName", e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Last Name</Label>
+
+              <div>
+                <Label>Last Name *</Label>
                 <Input
+                  required
                   value={editForm.lastName || ""}
                   onChange={(e) => handleEditChange("lastName", e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
+
+              <div>
+                <Label>Email *</Label>
                 <Input
+                  type="email"
+                  required
                   value={editForm.email || ""}
                   onChange={(e) => handleEditChange("email", e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Phone</Label>
+
+              <div>
+                <Label>Phone *</Label>
                 <Input
+                  required
                   value={editForm.phoneNumber || ""}
                   onChange={(e) => handleEditChange("phoneNumber", e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Role</Label>
+
+              <div>
+                <Label>Role *</Label>
                 <select
+                  required
                   value={editForm.empRole || ""}
                   onChange={(e) => handleEditChange("empRole", e.target.value)}
                   className="w-full border border-gray-300 rounded-md px-3 py-2"
@@ -778,37 +1056,86 @@ export default function OnboardingPage() {
                   <option value="CEO">CEO</option>
                 </select>
               </div>
+
+              <div>
+                <Label>Salary *</Label>
+                <Input
+                  required
+                  value={editForm.salary || ""}
+                  onChange={(e) => handleEditChange("salary", e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label>Blood Group</Label>
+                <Input
+                  value={editForm.bloodGroup || ""}
+                  onChange={(e) =>
+                    handleEditChange("bloodGroup", e.target.value.toUpperCase())
+                  }
+                />
+              </div>
             </div>
-            <div className="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onClick={() => setEditOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={editSubmitting}>
-                {editSubmitting ? "Saving..." : "Save Changes"}
-              </Button>
+
+            {/* Address */}
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-2">Address</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <InputField label="Address Line 1 *" field="address1" obj="address" />
+                <InputField label="Address Line 2" field="address2" obj="address" />
+                <InputField label="Country *" field="country" obj="address" />
+                <InputField label="City *" field="city" obj="address" />
+                <InputField label="Pincode *" field="pincode" obj="address" />
+              </div>
             </div>
+
+            {/* Bank Details */}
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-2">Bank Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <InputField label="Account Number *" field="bankAccount" obj="bankDetails" />
+                <InputField label="IFSC Code *" field="ifscCode" obj="bankDetails" />
+                <InputField label="Bank Name *" field="bankName" obj="bankDetails" />
+                <InputField label="Branch Name *" field="branchName" obj="bankDetails" />
+              </div>
+            </div>
+
+            {/* Emergency Contact */}
+            <div>
+              <h3 className="font-semibold">Emergency Contact</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <InputField label="Name *" field="name" obj="emergencyContact" />
+                <InputField label="Contact Number *" field="contactNumber" obj="emergencyContact" />
+                <InputField label="Relation *" field="relation" obj="emergencyContact" />
+              </div>
+            </div>
+
+            <Button type="submit" disabled={editSubmitting} className="w-full bg-gray-800 text-white transition-colors">
+              {editSubmitting ? "Saving..." : "Save Changes"}
+            </Button>
           </form>
+
         </DialogContent>
       </Dialog>
 
-      {/* Offboard Confirmation */}
+      {/* ========== OFFBOARD CONFIRM DIALOG ========== */}
       <Dialog open={offbConfirmOpen} onOpenChange={setOffbConfirmOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Confirm Offboarding</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to remove this employee?
-            </DialogDescription>
+            <DialogDescription>Are you sure you want to remove this employee?</DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4">
             <p className="text-sm">
-              {offbTarget?.firstName} {offbTarget?.lastName} (
-              {offbTarget?.empId})
+              {offbTarget?.firstName} {offbTarget?.lastName} ({offbTarget?.empId})
             </p>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setOffbConfirmOpen(false)}>
                 Cancel
               </Button>
+
               <Button
                 variant="destructive"
                 onClick={submitOffboard}

@@ -37,6 +37,7 @@ const menuConfig = {
   HR: [
     { path: "/employee-directory", label: "Employee Directory", icon: Users },
     { path: "/attendance", label: "Attendance", icon: Calendar },
+
     { path: "/onboarding", label: "Onboarding", icon: UserPlus },
     { path: "/leave-requests", label: "Leave Requests", icon: FileText },
     { path: "/payroll", label: "Payroll", icon: DollarSign },
