@@ -1,33 +1,25 @@
-/**
- * Axios instance configured with environment variable
- * Use this instead of creating individual axios instances
- */
 import axios from 'axios';
 
-// Get API base URL from environment variable
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-// Create axios instance with base URL from environment
-export const apiClient = axios.create({
+const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Add request interceptor for logging (development only)
+// Optional: Logging for development
 if (import.meta.env.DEV) {
-  apiClient.interceptors.request.use((config) => {
+  apiClient.interceptors.request.use(config => {
     console.log(`🔗 Axios Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
     return config;
   });
 
   apiClient.interceptors.response.use(
-    (response) => {
+    response => {
       console.log(`✅ Axios Response: ${response.status} ${response.config.url}`);
       return response;
     },
-    (error) => {
+    error => {
       console.error(`❌ Axios Error: ${error.config?.url}`, error.message);
       return Promise.reject(error);
     }

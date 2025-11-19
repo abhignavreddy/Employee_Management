@@ -5,12 +5,12 @@ import { AuthProvider } from "./contexts/AuthContext";
 import AppShell from "./components/Layout/AppShell";
 import ProtectedRoute from "./components/ProtectedRoute";
 import OnboardingPage from "./pages/HR/OnboardingPage";
+import { Toaster } from "sonner"; // ✅ Add this import
 
 // Auth Pages
 import Login from "./pages/Login";
 import Unauthorized from "./pages/Unauthorized";
 import RoleRedirect from "./pages/RoleRedirect";
-
 import RegistrationForm from "./pages/RegistrationForm";
 
 // Manager Pages
@@ -20,7 +20,6 @@ import EmployeesPage from "./pages/Manager/EmployeesPage";
 import AssignTaskPage from "./pages/Manager/AssignTaskPage";
 import AllTasksPage from "./pages/Manager/AllTasksPage";
 import TaskHistoryPage from "./pages/Manager/TaskHistoryPage";
-
 import ProjectFieldsPage from "./pages/Manager/ProjectFieldsPage";
 import ProjectSpacesPage from "./pages/Spaces/ProjectSpacesPage";
 import SpacesPage from "./pages/SpacesPage";
@@ -28,6 +27,7 @@ import SpacesPage from "./pages/SpacesPage";
 // Employee Pages
 import MyTasksPage from "./pages/Employee/MyTasksPage";
 import EmployeeBoardPage from "./pages/Employee/EmployeeBoard";
+import MyAttendancePage from "./pages/Employee/MyAttendancePage";
 
 // HR Pages
 import PayrollPage from "./pages/HR/PayrollPage";
@@ -36,7 +36,7 @@ import EmployeeDirectoryPage from "./pages/HR/EmployeeDirectoryPage";
 import AttendanceManagementPage from "./pages/HR/AttendanceManagementPage";
 import OnboardingHRPage from "./pages/HR/OnboardingPage";
 
-//CEO Pages
+// CEO Pages
 import CEODashboardPage from "./pages/CEO/CEODashboardPage";
 import DepartmentReportsPage from "./pages/CEO/DepartmentReportsPage";
 import SalariesOverviewPage from "./pages/CEO/SalariesOverviewPage";
@@ -44,7 +44,7 @@ import TopPerformersPage from "./pages/CEO/TopPerformersPage";
 import TaskAnalyticsPage from "./pages/CEO/TaskAnalyticsPage";
 import MyAttendancePage from "./pages/Employee/MyAttendancePage";
 
-// CEO Pages (Placeholder)
+// Placeholder Page
 const PlaceholderPage = ({ title }) => (
   <div className="p-6">
     <div className="max-w-4xl mx-auto text-center py-20">
@@ -56,8 +56,6 @@ const PlaceholderPage = ({ title }) => (
     </div>
   </div>
 );
-
-
 
 function App() {
   return (
@@ -102,7 +100,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
             <Route
               path="/client-intake"
               element={
@@ -134,7 +131,8 @@ function App() {
             <Route
               path="/attendance"
               element={
-                <ProtectedRoute allowedRoles={["Manager", "CEO", "HR"]}>
+                <ProtectedRoute allowedRoles={["Manager", "CEO" ,"HR"]}>
+
                   <AppShell>
                     <AttendanceManagementPage />
                   </AppShell>
@@ -196,7 +194,7 @@ function App() {
             <Route
               path="/leave-requests"
               element={
-                <ProtectedRoute allowedRoles={["HR"]}>
+                <ProtectedRoute allowedRoles={["HR", "Manager", "CEO"]}>
                   <AppShell>
                     <LeaveRequestsPage />
                   </AppShell>
@@ -292,7 +290,8 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={["Employee"]}>
                   <AppShell>
-                    <MyAttendancePage/>
+                    <MyAttendancePage />
+
                   </AppShell>
                 </ProtectedRoute>
               }
@@ -330,11 +329,13 @@ function App() {
               }
             />
 
-             <Route path="/register" element={<RegistrationForm />} />
-
+            <Route path="/register" element={<RegistrationForm />} />
           </Routes>
         </BrowserRouter>
-        
+
+        {/* ✅ Add Toaster globally so toast notifications appear everywhere */}
+        <Toaster richColors position="top-right" />
+
       </AuthProvider>
     </div>
   );
