@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FileText, Check, X, Calendar } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import apiClient from "../../lib/apiClient";
@@ -11,131 +11,97 @@ const LeaveRequestsPage = () => {
   const [requests, setRequests] = useState([]);
 
   const user = JSON.parse(localStorage.getItem("user"));
-  const role = user?.role?.toUpperCase();
+  const role = user?.role?.toUpperCase() || "";
 
-  // ----------------------------------------------------
-  // Fetch Leave Requests
-  // ----------------------------------------------------
   useEffect(() => {
-  async function fetchLeaveRequests() {
-    try {
-      const res = await apiClient.get("/leave-approvel/view", {
-        params: { role }
-      });
+    async function fetchLeaveRequests() {
+      try {
+        const res = await apiClient.get("/leave-approvel/view", {
+          params: { role }
+        });
 
-      console.log("Fetched Leaves:", res.data);
+        console.log("Fetched Leaves:", res.data);
 
-      setRequests(
-        res.data.map(r => ({
-          ...r,
-          empRole: r.emp_role?.toUpperCase(),
-          status: r.status?.toUpperCase(), 
-          id: r._id || r.id
-        }))
-      );
-    } catch (err) {
-      console.error(err);
+        setRequests(
+          res.data.map(r => ({
+            ...r,
+            empRole: r.emp_role?.toUpperCase() || "",
+            status: r.status?.toUpperCase() || "",
+            id: r._id || r.id,
+            empId: r.empId || r.emp_id || r.employeeId || null,
+          }))
+        );
+      } catch (err) {
+        console.error(err);
+      }
     }
-  }
-  fetchLeaveRequests();
-}, [role]);
+    fetchLeaveRequests();
+  }, [role]);
 
-  // ----------------------------------------------------
-  // Role Filtering FIXED
-  // ----------------------------------------------------
   const filterRequestsByRole = () => {
-  if (role === "CEO") return requests;
-
-  if (role === "HR") {
-    return requests.filter(r =>
-      ["EMPLOYEE", "MANAGER"].includes(r.empRole)
-    );
+  if (role === "CEO" || role === "HR" || role === "MANAGER") {
+    return requests;
   }
-
-  if (role === "MANAGER") {
-    return requests.filter(r =>
-      ["EMPLOYEE", "HR"].includes(r.empRole)
-    );
-  }
-
   return [];
 };
- 
+
+
 
   const visibleRequests = filterRequestsByRole();
 
+  const pendingRequests = visibleRequests.filter(r => r.status === "PENDING");
+  const approvedRequests = visibleRequests.filter(r => r.status === "APPROVED");
+  const rejectedRequests = visibleRequests.filter(r => r.status === "REJECTED");
 
-  // ----------------------------------------------------
-  // Status Filtering
-  // ----------------------------------------------------
-  const pendingRequests = visibleRequests.filter(r => r.status?.toUpperCase() === "PENDING");
-  const approvedRequests = visibleRequests.filter(r => r.status?.toUpperCase() === "APPROVED");
-  const rejectedRequests = visibleRequests.filter(r => r.status?.toUpperCase() === "REJECTED");
-
-
-  // ----------------------------------------------------
-  // Approval Permissions
-  // ----------------------------------------------------
   const canApprove = (req) => {
-    if (req.empId === user.empId) return false;  // Cannot approve own leave
-    
-    if (role === "CEO") return true;            // CEO approves all
-    if (role === "HR") return req.emp_role?.toUpperCase() === "EMPLOYEE";
-    if (role === "MANAGER") return req.emp_role?.toUpperCase() === "EMPLOYEE";
-    return false;
+  if (!req.empId || req.empId === user.empId) return false;
+
+  // Only CEO and HR can approve
+  if (role === "CEO" || role === "HR") {
+    return true;
+  }
+
+  // Managers cannot approve even employee leaves
+  return false;
+};
+
+
+  const handleApprove = async (id) => {
+    if (!id) return toast.error("Invalid request ID");
+    try {
+      await apiClient.patch(`/leave-approvel/${id}/status`, {
+        status: "APPROVED",
+      });
+
+      setRequests(prev =>
+        prev.map(r => (r.id === id ? { ...r, status: "APPROVED" } : r))
+      );
+
+      toast.success("Leave approved!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Approval failed");
+    }
   };
 
+  const handleReject = async (id) => {
+    if (!id) return toast.error("Invalid request ID");
+    try {
+      await apiClient.patch(`/leave-approvel/${id}/status`, {
+        status: "REJECTED",
+      });
 
-  // ----------------------------------------------------
-  // Approve / Reject Actions
-  // ----------------------------------------------------
-  const handleApprove = async (id) => {
-  if (!id) return toast.error("Invalid request ID");
+      setRequests(prev =>
+        prev.map(r => (r.id === id ? { ...r, status: "REJECTED" } : r))
+      );
 
-  try {
-    const res = await apiClient.patch(`/leave-approvel/${id}/status`, {
-      status: "APPROVED"
-    });
+      toast.success("Leave rejected!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Rejection failed");
+    }
+  };
 
-    console.log("Approve response:", res.data);
-
-    setRequests(prev =>
-      prev.map(r => r.id === id ? { ...r, status: "APPROVED" } : r)
-    );
-
-    toast.success("Leave approved!");
-  } catch (err) {
-    console.error("Approval error:", err);
-    toast.error("Approval failed");
-  }
-};
-
-const handleReject = async (id) => {
-  if (!id) return toast.error("Invalid request ID");
-
-  try {
-    const res = await apiClient.patch(`/leave-approvel/${id}/status`, {
-      status: "REJECTED"
-    });
-
-    console.log("Reject response:", res.data);
-
-    setRequests(prev =>
-      prev.map(r => r.id === id ? { ...r, status: "REJECTED" } : r)
-    );
-
-    toast.success("Leave rejected!");
-  } catch (err) {
-    console.error("Rejection error:", err);
-    toast.error("Rejection failed");
-  }
-};
-
-
-
-  // ----------------------------------------------------
-  // Leave Card
-  // ----------------------------------------------------
   const LeaveRequestCard = ({ request }) => {
     const showActions = canApprove(request) && request.status === "PENDING";
 
@@ -153,13 +119,13 @@ const handleReject = async (id) => {
             </div>
 
             <Badge
-              className={`px-2 py-1 
-                ${request.status === "APPROVED"
+              className={`px-2 py-1 ${
+                request.status === "APPROVED"
                   ? "bg-green-100 text-green-800"
                   : request.status === "REJECTED"
                   ? "bg-red-100 text-red-800"
                   : "bg-yellow-100 text-yellow-800"
-                }`}
+              }`}
             >
               {request.status}
             </Badge>
@@ -189,10 +155,6 @@ const handleReject = async (id) => {
     );
   };
 
-
-  // ----------------------------------------------------
-  // PAGE UI
-  // ----------------------------------------------------
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-3xl font-bold">Leave Requests</h1>
@@ -205,18 +167,27 @@ const handleReject = async (id) => {
         </TabsList>
 
         <TabsContent value="pending" className="space-y-4">
-          {pendingRequests.map(r => <LeaveRequestCard key={r.id} request={r} />)}
-          {pendingRequests.length === 0 && <p>No pending requests</p>}
+          {pendingRequests.length > 0 ? (
+            pendingRequests.map(r => <LeaveRequestCard key={r.id} request={r} />)
+          ) : (
+            <p>No pending requests</p>
+          )}
         </TabsContent>
 
         <TabsContent value="approved" className="space-y-4">
-          {approvedRequests.map(r => <LeaveRequestCard key={r.id} request={r} />)}
-          {approvedRequests.length === 0 && <p>No approved requests</p>}
+          {approvedRequests.length > 0 ? (
+            approvedRequests.map(r => <LeaveRequestCard key={r.id} request={r} />)
+          ) : (
+            <p>No approved requests</p>
+          )}
         </TabsContent>
 
         <TabsContent value="rejected" className="space-y-4">
-          {rejectedRequests.map(r => <LeaveRequestCard key={r.id} request={r} />)}
-          {rejectedRequests.length === 0 && <p>No rejected requests</p>}
+          {rejectedRequests.length > 0 ? (
+            rejectedRequests.map(r => <LeaveRequestCard key={r.id} request={r} />)
+          ) : (
+            <p>No rejected requests</p>
+          )}
         </TabsContent>
       </Tabs>
     </div>
