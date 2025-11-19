@@ -2,6 +2,7 @@ import { useForm, FormProvider, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRef, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import TaskTemplatePicker from "../../components/TaskTemplatePicker";
 import { apiGet, apiPost, apiFetch } from "../../lib/api";
 
@@ -134,6 +135,8 @@ export default function ClientIntakePage() {
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
   const selectedType = useWatch({ control, name: "functional.pagesCsv" });
+
+  const navigate = useNavigate();
 
   // ---------- Scroll Helpers ----------
   const scrollYRef = useRef(0);
@@ -336,6 +339,9 @@ export default function ClientIntakePage() {
           }
         }
       }
+
+      // After successful save (+ optional story creation), navigate back to projects.
+      navigate("/projects");
     } catch (e) {
       console.error("❌ Save failed:", e);
       alert("❌ Failed to save client onboarding record. Please try again.");
@@ -347,13 +353,26 @@ export default function ClientIntakePage() {
     <FormProvider {...methods}>
       <div className="min-h-screen w-full bg-zinc-50">
         <div className="mx-auto max-w-6xl px-4 py-10">
-          <header className="mb-8">
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-              Client Intake
-            </h1>
-            <p className="mt-1 text-zinc-600">
-              All categories on one page, saved in a single submission.
-            </p>
+          <header className="mb-8 flex items-start justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
+                Client Intake
+              </h1>
+              <p className="mt-1 text-zinc-600">
+                All categories on one page, saved in a single submission.
+              </p>
+            </div>
+
+            {/* Go Back button at top-right */}
+            <div>
+              <button
+                type="button"
+                onClick={() => navigate("/projects")}
+                className="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50"
+              >
+                ← Go Back
+              </button>
+            </div>
           </header>
 
           <form
