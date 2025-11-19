@@ -61,6 +61,7 @@ export default function AttendanceManagementPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmpId, setSelectedEmpId] = useState(null);
   const [selectedEmpName, setSelectedEmpName] = useState("");
+  const [selectedEmpRecords, setSelectedEmpRecords] = useState([]);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
 
   const isManagerView = ["HR", "Manager", "CEO"].includes(user?.role);
@@ -439,16 +440,19 @@ export default function AttendanceManagementPage() {
                     <TableCell>{r.workMode || "—"}</TableCell>
                     <TableCell>
                       <Button
-                        size="sm"
-                        className="mr-2 bg-blue-600 hover:bg-blue-700 text-white w-[110px]"
-                        onClick={() => {
-                          setSelectedEmpId(r.empId);
-                          setSelectedEmpName(r.empName);
-                          setIsTimesheetOpen(true);
-                        }}
-                      >
-                        Timesheet
-                      </Button>
+                     size="sm"
+                    className="mr-2 bg-blue-600 hover:bg-blue-700 text-white w-[110px]"
+                    onClick={async () => {
+                   setSelectedEmpId(r.empId);
+                  setSelectedEmpName(r.empName);
+                  // Fetch all records for selected employee!
+                  const allEmpRecords = await AttendanceAPI.getByEmpId(r.empId);
+                  setSelectedEmpRecords(allEmpRecords);
+                 setIsTimesheetOpen(true);
+            }}>
+           Timesheet
+          </Button>
+
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild className="w-[110px] bg-grey-50">
@@ -482,12 +486,12 @@ export default function AttendanceManagementPage() {
       </Card>
 
       <TimesheetModal
-        open={isTimesheetOpen}
-        onClose={() => setIsTimesheetOpen(false)}
-        records={employeeRecords(selectedEmpId)}
-        empId={selectedEmpId}
-        empName={selectedEmpName}
-      />
+  open={isTimesheetOpen}
+  onClose={() => setIsTimesheetOpen(false)}
+  records={selectedEmpRecords}
+  empId={selectedEmpId}
+  empName={selectedEmpName}
+/>
 
       <LeaveRequestModal
         open={isLeaveModalOpen}
