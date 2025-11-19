@@ -18,7 +18,16 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
     ],
     server: {
+      // Bind to all network interfaces so the dev server is reachable
+      // from localhost, WSL, containers, or other hosts on the LAN.
+      host: true,
       port: 5173,
+      // Explicit HMR options to ensure the client connects to the correct websocket
+      hmr: {
+        protocol: 'ws',
+        host: process.env.VITE_HMR_HOST || 'localhost',
+        port: Number(process.env.VITE_HMR_PORT || 5173),
+      },
       proxy: {
         '/api': {
           // Use environment variable for proxy target, fallback to default

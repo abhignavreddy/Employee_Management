@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Check, X } from "lucide-react";
+import { Check, X, Edit } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import apiClient from "../../lib/apiClient";
@@ -104,9 +104,28 @@ const LeaveRequestsPage = () => {
 
   const LeaveRequestCard = ({ request }) => {
     const showActions = canApprove(request) && request.status === "PENDING";
+    const [isEditing, setIsEditing] = useState(false);
+    const [editStatus, setEditStatus] = useState(request.status || "PENDING");
+    const [isSaving, setIsSaving] = useState(false);
+
+    const handleSaveStatus = async () => {
+      if (!request.id) return toast.error("Invalid request id");
+      setIsSaving(true);
+      try {
+        await apiClient.patch(`/leave-approvel/${request.id}/status`, { status: editStatus });
+        setRequests(prev => prev.map(r => (r.id === request.id ? { ...r, status: editStatus } : r)));
+        toast.success("Status updated");
+        setIsEditing(false);
+      } catch (err) {
+        console.error(err);
+        toast.error("Update failed");
+      } finally {
+        setIsSaving(false);
+      }
+    };
 
     return (
-      <Card className="hover:shadow-md transition-shadow">
+      <Card className="hover:shadow-md transition-shadow overflow-hidden">
         <CardContent className="p-6">
           <div className="flex justify-between mb-2">
             <div>
@@ -117,21 +136,62 @@ const LeaveRequestsPage = () => {
                 {new Date(request.toDate).toLocaleDateString()}
               </p>
             </div>
+            <div className="flex items-start gap-2">
+              <Badge
+                className={`px-2 py-0.5 text-xs rounded-md self-start z-0 ${
+                  request.status === "APPROVED"
+                    ? "bg-green-100 text-green-800"
+                    : request.status === "REJECTED"
+                    ? "bg-red-100 text-red-800"
+                    : "bg-yellow-100 text-yellow-800"
+                }`}
+              >
+                {request.status}
+              </Badge>
 
-            <Badge
-              className={`px-2 py-1 ${
-                request.status === "APPROVED"
-                  ? "bg-green-100 text-green-800"
-                  : request.status === "REJECTED"
-                  ? "bg-red-100 text-red-800"
-                  : "bg-yellow-100 text-yellow-800"
-              }`}
-            >
-              {request.status}
-            </Badge>
+              {/* Pencil Edit button - does not remove approve/reject buttons */}
+              {canApprove(request) && (
+                <button
+                  aria-label="Edit status"
+                  onClick={() => { setIsEditing(prev => !prev); setEditStatus(request.status); }}
+                  className="p-1 rounded-md hover:bg-gray-100 text-gray-700 ml-2"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
 
           <p className="text-gray-700 mt-2">{request.reason}</p>
+
+          {isEditing && (
+            <div className="flex items-center gap-2 mt-3">
+              <select
+                value={editStatus}
+                onChange={(e) => setEditStatus(e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              >
+                <option value="PENDING">PENDING</option>
+                <option value="APPROVED">APPROVED</option>
+                <option value="REJECTED">REJECTED</option>
+              </select>
+
+              <Button
+                onClick={handleSaveStatus}
+                disabled={isSaving}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Save
+              </Button>
+
+              <Button
+                onClick={() => { setIsEditing(false); setEditStatus(request.status); }}
+                className="bg-gray-100"
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
 
           {showActions && (
             <div className="flex gap-3 mt-4 border-t pt-2">
@@ -166,25 +226,37 @@ const LeaveRequestsPage = () => {
           <TabsTrigger value="rejected">Rejected ({rejectedRequests.length})</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="pending" className="space-y-4">
+        <TabsContent value="pending">
           {pendingRequests.length > 0 ? (
-            pendingRequests.map(r => <LeaveRequestCard key={r.id} request={r} />)
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {pendingRequests.map(r => (
+                <LeaveRequestCard key={r.id} request={r} />
+              ))}
+            </div>
           ) : (
             <p>No pending requests</p>
           )}
         </TabsContent>
 
-        <TabsContent value="approved" className="space-y-4">
+        <TabsContent value="approved">
           {approvedRequests.length > 0 ? (
-            approvedRequests.map(r => <LeaveRequestCard key={r.id} request={r} />)
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {approvedRequests.map(r => (
+                <LeaveRequestCard key={r.id} request={r} />
+              ))}
+            </div>
           ) : (
             <p>No approved requests</p>
           )}
         </TabsContent>
 
-        <TabsContent value="rejected" className="space-y-4">
+        <TabsContent value="rejected">
           {rejectedRequests.length > 0 ? (
-            rejectedRequests.map(r => <LeaveRequestCard key={r.id} request={r} />)
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {rejectedRequests.map(r => (
+                <LeaveRequestCard key={r.id} request={r} />
+              ))}
+            </div>
           ) : (
             <p>No rejected requests</p>
           )}

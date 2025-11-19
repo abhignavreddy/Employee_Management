@@ -27,7 +27,6 @@ import SpacesPage from "./pages/SpacesPage";
 // Employee Pages
 import MyTasksPage from "./pages/Employee/MyTasksPage";
 import EmployeeBoardPage from "./pages/Employee/EmployeeBoard";
-import MyAttendancePage from "./pages/Employee/MyAttendancePage";
 
 // HR Pages
 import PayrollPage from "./pages/HR/PayrollPage";

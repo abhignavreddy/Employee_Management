@@ -5,6 +5,7 @@ import autoTable from "jspdf-autotable";
 import { useAuth } from "../../contexts/AuthContext";
 import LeaveRequestModal from "./LeaveRequestModal";
 import TimesheetModal from "./TimesheetModal";
+import { getHolidayByDate, isPublicHoliday, ensureHolidays } from "../../lib/publicHolidays";
 
 import { LogIn, LogOut, Home, Building2, Plus, Download } from "lucide-react";
 
@@ -33,6 +34,7 @@ export default function MyAttendancePage() {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
+  const [todayHoliday, setTodayHoliday] = useState(null);
 
   // Helper functions for consistent IST date/time formatting
   const displayTime = (timeString) => {
@@ -53,6 +55,9 @@ export default function MyAttendancePage() {
     if (!user?.empId) return;
 
     try {
+      // Ensure holiday list for this year is loaded (Google Calendar or fallback)
+      await ensureHolidays(new Date().getFullYear());
+
       const data = await AttendanceAPI.getByEmpId(user.empId);
 
       // Fetch leave requests
@@ -68,12 +73,16 @@ export default function MyAttendancePage() {
       const today = new Date().toISOString().split("T")[0];
 
       // Check if employee is on leave today (boolean)
-      const onLeaveToday = leaves.some(l =>
+      const onLeaveToday = leaves.some((l) =>
         l.status?.toUpperCase() === "APPROVED" &&
         today >= l.fromDate &&
         today <= l.toDate
       );
       setIsOnLeaveToday(onLeaveToday);
+
+      // Check if today is a public holiday
+      const holiday = getHolidayByDate(today);
+      setTodayHoliday(holiday);
 
       // Map attendance records to mark Leave for table display status
       const updatedRecords = data.map(r => {
@@ -105,10 +114,11 @@ export default function MyAttendancePage() {
   };
 
   // Check-In / Check-Out buttons enable/disable conditions
-  const canCheckIn = !isOnLeaveToday && (!todayRecord || (!todayRecord.checkIn && !todayRecord.checkOut));
-  const canCheckOut = !isOnLeaveToday && todayRecord && todayRecord.checkIn && !todayRecord.checkOut;
+  const canCheckIn = !isOnLeaveToday && !todayHoliday && (!todayRecord || (!todayRecord.checkIn && !todayRecord.checkOut));
+  const canCheckOut = !isOnLeaveToday && !todayHoliday && todayRecord && todayRecord.checkIn && !todayRecord.checkOut;
 
   const handleCheckIn = async () => {
+    if (todayHoliday) return alert(`Check-in disabled: Public holiday — ${todayHoliday.name}`);
     try {
       const now = new Date();
       const payload = {
@@ -129,6 +139,7 @@ export default function MyAttendancePage() {
   };
 
   const handleCheckOut = async () => {
+    if (todayHoliday) return alert(`Check-out disabled: Public holiday — ${todayHoliday.name}`);
     if (!todayRecord) return alert("No check-in found for today.");
     try {
       await AttendanceAPI.checkOut(todayRecord.id);
@@ -199,6 +210,12 @@ export default function MyAttendancePage() {
         </div>
       )}
 
+      {todayHoliday && (
+        <div className="p-3 mb-2 bg-yellow-50 text-yellow-800 rounded-md border border-yellow-300">
+          Today is a public holiday: <strong>{todayHoliday.name}</strong>. Check-In/Check-Out is disabled.
+        </div>
+      )}
+
       {/* CHECK-IN / CHECK-OUT */}
       <div className="flex items-center gap-3 mt-2">
         <Select value={workMode} onValueChange={setWorkMode}>
@@ -252,9 +269,24 @@ export default function MyAttendancePage() {
                 return (
                   <TableRow key={r.id}>
                     <TableCell>{displayDate(r.date)}</TableCell>
-                    <TableCell>{checkIn ? checkIn.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
-                    <TableCell>{checkOut ? checkOut.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
-                    <TableCell>{workHours ? `${workHours} h` : "—"}</TableCell>
+                    <TableCell>{checkIn ? displayTime(r.checkIn) : "—"}</TableCell>
+                    <TableCell>{checkOut ? displayTime(r.checkOut) : "—"}</TableCell>
+                    <TableCell>{r.workHours !== undefined && r.workHours !== null
+                        ? (() => {
+                            const hours = Math.floor(r.workHours);
+                            const minutes = Math.round((r.workHours - hours) * 60);
+                            return `${hours}h ${minutes}m`;
+                          })()
+                        : r.checkIn && r.checkOut
+                        ? (() => {
+                            const diffMs = new Date(r.checkOut) - new Date(r.checkIn);
+                            const totalMinutes = Math.floor(diffMs / (1000 * 60));
+                            const hours = Math.floor(totalMinutes / 60);
+                            const minutes = totalMinutes % 60;
+                            return `${hours}h ${minutes}m`;
+                          })()
+                        : "—"}
+                        </TableCell>
                     <TableCell><Badge variant="outline" className={getStatusColor(r.status)}>{r.status}</Badge></TableCell>
                     <TableCell>{r.workMode || "—"}</TableCell>
                   </TableRow>

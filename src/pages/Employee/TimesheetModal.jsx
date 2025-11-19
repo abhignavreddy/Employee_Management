@@ -2,6 +2,9 @@ import React, { useMemo, useState } from "react";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "../../components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Table, TableHead, TableHeader, TableRow, TableBody, TableCell } from "../../components/ui/table";
+import apiClient from "../../lib/apiClient";
+import { Button } from "../../components/ui/button";
+import { toast } from "sonner";
 
 // Returns Monday of the week for the given date (always Monday-Sunday week)
 function getMonday(date) {
@@ -58,19 +61,31 @@ export default function TimesheetModal({ open, onClose, records = [] }) {
       const dayISO = toLocalDateString(d);
       const rec = records.find((r) => toLocalDateString(new Date(r.date)) === dayISO);
       const dayOfWeek = d.getDay();
-
+      // Determine status and handle incomplete records (missing checkout)
       let status = rec?.status || "Absent";
       if (!rec && (dayOfWeek === 6 || dayOfWeek === 0)) {
         status = "Weekoff";
       }
 
-      const hours = rec?.workHours !== undefined && rec?.workHours !== null
-        ? rec.workHours
-        : (rec?.checkIn && rec?.checkOut
-          ? ((new Date(rec.checkOut) - new Date(rec.checkIn)) / (1000 * 60 * 60))
-          : 0);
+      // Calculate hours and overtime. If checkIn exists but checkOut missing, mark as Incomplete and do NOT count hours/overtime.
+      let hours = 0;
+      let overtime = 0;
+      let incomplete = false;
 
-      const overtime = hours > 9 ? hours - 9 : 0;
+      if (rec) {
+        if (rec.workHours !== undefined && rec.workHours !== null) {
+          hours = rec.workHours;
+        } else if (rec.checkIn && rec.checkOut) {
+          hours = (new Date(rec.checkOut) - new Date(rec.checkIn)) / (1000 * 60 * 60);
+        } else if (rec.checkIn && !rec.checkOut) {
+          // Missing checkout — treat as incomplete and do not count hours to avoid accidental overtime
+          incomplete = true;
+          hours = 0;
+          status = "Incomplete";
+        }
+      }
+
+      overtime = !incomplete && hours > 9 ? hours - 9 : 0;
 
       days.push({
         date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" }),
@@ -80,7 +95,9 @@ export default function TimesheetModal({ open, onClose, records = [] }) {
         checkOut: rec?.checkOut || null,
         workMode: rec?.workMode || "—",
         hours,
-        overtime
+        overtime,
+        incomplete,
+        recordId: rec?.id || rec?._id || null
       });
     }
     return days;
@@ -130,20 +147,53 @@ export default function TimesheetModal({ open, onClose, records = [] }) {
           </TableHeader>
           <TableBody>
             {weekData.map((d, idx) => (
-              <TableRow key={idx}>
-                <TableCell>{d.date}</TableCell>
-                <TableCell>{d.day}</TableCell>
-                <TableCell>{d.status}</TableCell>
-                <TableCell>{d.checkIn ? new Date(d.checkIn).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit' }) : "—"}</TableCell>
-                <TableCell>{d.checkOut ? new Date(d.checkOut).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit' }) : "—"}</TableCell>
-                <TableCell>{d.hours ? d.hours.toFixed(2) : "0.00"}</TableCell>
-                <TableCell>
-                  {d.overtime > 0
-                    ? <span className="text-red-600 font-bold">{d.overtime.toFixed(2)}</span>
-                    : d.overtime.toFixed(2)}
-                </TableCell>
-                <TableCell>{d.workMode}</TableCell>
-              </TableRow>
+            <TableRow key={idx}>
+              <TableCell>{d.date}</TableCell>
+              <TableCell>{d.day}</TableCell>
+              <TableCell>
+                {d.status}
+                {d.incomplete && (
+                  <span className="ml-2 text-sm px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded">Missing checkout</span>
+                )}
+              </TableCell>
+              <TableCell>{d.checkIn ? new Date(d.checkIn).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit' }) : "—"}</TableCell>
+              <TableCell>
+                {d.checkOut
+                  ? new Date(d.checkOut).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit' })
+                  : (d.incomplete ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-red-600">Missing</span>
+                        {d.recordId && (
+                          <Button
+                            size="sm"
+                            className="bg-yellow-500 hover:bg-yellow-600 text-white"
+                            onClick={async () => {
+                              try {
+                                const now = new Date().toISOString();
+                                await apiClient.patch(`/attendance/checkout/${d.recordId}`, { checkOut: now, status: "Present" });
+                                toast.success("Checkout fixed — set to now");
+                                // Refresh page to pick up updated attendance; parent can also reload data if wired
+                                window.location.reload();
+                              } catch (err) {
+                                console.error(err);
+                                toast.error("Failed to fix checkout");
+                              }
+                            }}
+                          >
+                            Fix
+                          </Button>
+                        )}
+                      </div>
+                    ) : "—")}
+              </TableCell>
+              <TableCell>{d.hours ? d.hours.toFixed(2) : "0.00"}</TableCell>
+              <TableCell>
+                {d.overtime > 0
+                  ? <span className="text-red-600 font-bold">{d.overtime.toFixed(2)}</span>
+                  : d.overtime.toFixed(2)}
+              </TableCell>
+              <TableCell>{d.workMode}</TableCell>
+            </TableRow>
             ))}
           </TableBody>
         </Table>

@@ -38,6 +38,7 @@ import {
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { getHolidayByDate, ensureHolidays } from "../../lib/publicHolidays";
 
 // Helper functions for local date/time formatting (use user's local timezone)
 const displayTime = (timeString) => {
@@ -66,6 +67,8 @@ const AttendanceAPI = {
 
 export default function AttendanceManagementPage() {
   const { user } = useAuth();
+  const today = new Date().toISOString().split("T")[0];
+  const [todayHoliday, setTodayHoliday] = useState(null);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
@@ -132,10 +135,16 @@ export default function AttendanceManagementPage() {
   };
 
   useEffect(() => {
-    load();
+    // load attendance and ensure holidays for current year
+    (async () => {
+      await ensureHolidays(new Date().getFullYear());
+      setTodayHoliday(getHolidayByDate(today));
+      await load();
+    })();
   }, [selectedDate, user]);
 
   const handleCheckIn = async () => {
+    if (todayHoliday) return alert(`Check-in disabled: Public holiday — ${todayHoliday.name}`);
     try {
       const now = new Date();
       const payload = {
@@ -156,6 +165,7 @@ export default function AttendanceManagementPage() {
   };
 
   const handleCheckOut = async () => {
+    if (todayHoliday) return alert(`Check-out disabled: Public holiday — ${todayHoliday.name}`);
     if (!todayRecord) return alert("No check-in found for today.");
     try {
       await AttendanceAPI.checkOut(todayRecord.id);
@@ -274,7 +284,7 @@ export default function AttendanceManagementPage() {
 
             {/* Check-in / Check-out */}
             <Button
-              disabled={!canCheckIn}
+              disabled={!canCheckIn || todayHoliday}
               onClick={handleCheckIn}
               className={`flex items-center text-white ${canCheckIn ? "bg-green-600 hover:bg-green-700" : "bg-gray-400"}`}
             >
@@ -282,7 +292,7 @@ export default function AttendanceManagementPage() {
               Check In
             </Button>
             <Button
-              disabled={!canCheckOut}
+              disabled={!canCheckOut || todayHoliday}
               onClick={handleCheckOut}
               className={`flex items-center text-white ${canCheckOut ? "bg-red-600 hover:bg-red-700" : "bg-gray-400"}`}
             >
@@ -300,6 +310,12 @@ export default function AttendanceManagementPage() {
           </div>
         )}
       </div>
+
+      {todayHoliday && (
+        <div className="p-3 mb-2 bg-yellow-50 text-yellow-800 rounded-md border border-yellow-300">
+          Today is a public holiday: <strong>{todayHoliday.name}</strong>. Check-In/Check-Out is disabled.
+        </div>
+      )}
 
       {/* Summary Cards */}
       {isManagerView && (
