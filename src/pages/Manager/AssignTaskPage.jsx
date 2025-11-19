@@ -112,81 +112,98 @@ export default function AssignTaskPage() {
 
   // Derive departments from employees if you need a filter; backend has no department field.
   // Use empRole as a proxy department to retain your UI.
-  const departments = useMemo(() => {
-    const roles = Array.from(new Set((employees || []).map(e => e.empRole).filter(Boolean)));
-    return roles.length ? roles : ['General'];
-  }, [employees]);
+  const DEPARTMENTS = [
+    'Development',
+    'Designing',
+    'Digital Marketing',
+    'Quality Assurance',
+    'DevOps',
+    'Product Management',
+    'Human Resources',
+    'Sales',
+    'Customer Support',
+    'Finance',
+    'Operations'
+  ];
+
 
   const handleChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  if (!formData.assignedTo) {
-    toast({ title: 'Validation', description: 'Please select assignee.' });
-    return;
-  }
+    e.preventDefault();
+    
+    if (!formData.assignedTo || !formData.project) {
+      toast({ 
+        title: 'Validation', 
+        description: 'Please select assignee and project.' 
+      });
+      return;
+    }
 
-  setSubmitting(true);
-  try {
-    // Lookup selected employee
-    const emp = (employees || []).find(
-      (e) => String(e.empId) === String(formData.assignedTo)
-    );
-    const empName = [emp?.firstName, emp?.lastName].filter(Boolean).join(' ');
+    setSubmitting(true);
+    try {
+      const emp = (employees || []).find(
+        (e) => String(e.empId) === String(formData.assignedTo)
+      );
+      const empName = [emp?.firstName, emp?.lastName].filter(Boolean).join(' ');
 
-     const projectObj = projects.find(
+      const projectObj = projects.find(
         (p) => p.projectId === formData.project
       );
-    const projectName =
-      projectObj?.clientInfo?.projectName || formData.project;
+      const projectName = projectObj?.clientInfo?.projectName || formData.project;
 
-    // Prepare backend payload for StoryTableController
-    const payload = {
-      taskName: formData.title,
-      taskDescription: formData.description,
-      type: "Story",
-      description: formData.description,
-      assignedTo: formData.assignedTo || "unassigned",
-      project: projectName,
-      dueDate: formData.dueDate,
-      createdBy: user?.employeeId,
-      department: formData.department,
-      priority: formData.priority,
-      status: "BACKLOG",
-    };
+      const payload = {
+        taskName: formData.title,
+        taskDescription: formData.description,
+        type: "Story",
+        description: formData.description,
+        assignedTo: formData.assignedTo || "unassigned",
+        project: projectName,
+        dueDate: formData.dueDate,
+        createdBy: user?.employeeId,
+        department: formData.department,
+        priority: formData.priority,
+        status: "BACKLOG",
+      };
 
+      // ✅ Axios returns response with .data property
+      const response = await apiPost("/story-table", payload);
+      const created = response.data;
 
-    // ✅ Correct endpoint
-    const { data: created } = await api.post("/story-table", payload);
+      if (created?.id) setPriorityLocal(created.id, formData.priority);
 
-    // Save client-only priority (optional)
-    if (created?.id) setPriorityLocal(created.id, formData.priority);
+      toast({
+        title: "Story Created Successfully",
+        description: `Story "${formData.title}" has been assigned to ${empName || formData.assignedTo}.`,
+      });
 
-    toast({
-      title: "Story Created Successfully",
-      description: `Story "${formData.title}" has been assigned to ${empName || formData.assignedTo}.`,
-    });
+      setFormData({
+        title: "",
+        description: "",
+        project: "",
+        assignedTo: "",
+        priority: "Medium",
+        dueDate: "",
+        department: "",
+      });
+    } catch (err) {
+      console.error('Task creation error:', err);
+      const msg = err?.response?.data?.message || 
+                  err?.response?.data?.error || 
+                  err?.message || 
+                  "Failed to create story.";
+      toast({ 
+        title: "Error", 
+        description: msg,
+        variant: "destructive" 
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-    setFormData({
-      title: "",
-      description: "",
-      assignedTo: "",
-      priority: "Medium",
-      dueDate: "",
-      department: "",
-    });
-  } catch (err) {
-    const msg =
-      err?.response?.data?.message ||
-      err?.response?.data?.error ||
-      "Failed to create story.";
-    toast({ title: "Error", description: msg });
-  } finally {
-    setSubmitting(false);
-  }
-};
 
 
   return (
@@ -285,12 +302,15 @@ export default function AssignTaskPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="department">Department *</Label>
-                <Select value={formData.department} onValueChange={(value) => handleChange('department', value)}>
+                <Select 
+                  value={formData.department} 
+                  onValueChange={(value) => handleChange('department', value)}
+                >
                   <SelectTrigger id="department">
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent className="bg-white border border-gray-200 shadow-lg">
-                    {departments.map((dept) => (
+                    {DEPARTMENTS.map((dept) => (
                       <SelectItem key={dept} value={dept}>
                         {dept}
                       </SelectItem>
@@ -298,6 +318,7 @@ export default function AssignTaskPage() {
                   </SelectContent>
                 </Select>
               </div>
+
 
               <div className="space-y-2">
                 <Label htmlFor="priority">Priority *</Label>

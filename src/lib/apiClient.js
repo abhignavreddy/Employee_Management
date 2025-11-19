@@ -26,4 +26,20 @@ if (import.meta.env.DEV) {
   );
 }
 
+export const apiGet = (endpoint, config = {}) => {
+  return apiClient.get(endpoint, config);
+};
+
+export const apiPost = (endpoint, data, config = {}) => {
+  return apiClient.post(endpoint, data, config);
+};
+
+export const apiPut = (endpoint, data, config = {}) => {
+  return apiClient.put(endpoint, data, config);
+};
+
+export const apiDelete = (endpoint, config = {}) => {
+  return apiClient.delete(endpoint, config);
+};
+
 export default apiClient;

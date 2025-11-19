@@ -41,12 +41,22 @@ export const apiFetch = async (endpoint, options = {}) => {
   const url = getApiUrl(endpoint);
   
   try {
+    // ✅ FIX: Only set Content-Type header if body is NOT FormData
+    const headers = { ...options.headers };
+    
+    // Check if body is FormData - if so, don't set Content-Type (let browser handle it)
+    if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    
+    // If it's FormData, remove any Content-Type header that might have been set
+    if (options.body instanceof FormData) {
+      delete headers['Content-Type'];
+    }
+    
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
     });
     
     // Log response details for debugging
@@ -101,6 +111,18 @@ export const apiDelete = async (endpoint) => {
   return apiFetch(endpoint, { method: 'DELETE' });
 };
 
+/**
+ * POST request helper for multipart form data
+ * ✅ NEW: Added specifically for file uploads
+ */
+export const apiPostMultipart = async (endpoint, formData) => {
+  return apiFetch(endpoint, {
+    method: 'POST',
+    body: formData, // FormData object
+    // Don't set Content-Type - browser will set it with boundary
+  });
+};
+
 export default {
   getApiUrl,
   apiFetch,
@@ -108,4 +130,5 @@ export default {
   apiPost,
   apiPut,
   apiDelete,
+  apiPostMultipart, // ✅ Export new helper
 };
