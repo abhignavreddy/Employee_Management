@@ -111,7 +111,7 @@ export default function ProjectsPage() {
   };
 
   const openCreateIntake = () => {
-    window.open("/client-intake", "_blank", "noopener");
+    navigate("/client-intake");
   };
 
   if (loading) {
