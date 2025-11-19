@@ -32,10 +32,13 @@ function getWeeksList(n = 6) {
   return weeks;
 }
 
-// Helper to extract date string in IST ("yyyy-mm-dd")
-const toISTDateString = (date) => {
-  const dateIST = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
-  return dateIST.toISOString().slice(0, 10);
+// Helper to extract local date string ("yyyy-mm-dd") using local date parts
+const toLocalDateString = (date) => {
+  const d = new Date(date);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 };
 
 export default function TimesheetModal({ open, onClose, records = [] }) {
@@ -51,28 +54,27 @@ export default function TimesheetModal({ open, onClose, records = [] }) {
       const d = new Date(baseWeek.start);
       d.setDate(baseWeek.start.getDate() + i);
       // Get ISO string in IST for comparison
-      const dayISO = toISTDateString(d);
-      const rec = records.find(r => toISTDateString(new Date(r.date)) === dayISO);
-      const dayOfWeek = new Date(d.getTime() + 5.5 * 60 * 60 * 1000).getDay();
+      // Compare by local date (yyyy-mm-dd) to avoid timezone-shifts
+      const dayISO = toLocalDateString(d);
+      const rec = records.find((r) => toLocalDateString(new Date(r.date)) === dayISO);
+      const dayOfWeek = d.getDay();
 
       let status = rec?.status || "Absent";
       if (!rec && (dayOfWeek === 6 || dayOfWeek === 0)) {
         status = "Weekoff";
       }
 
-      // Calculate work hours for that day
       const hours = rec?.workHours !== undefined && rec?.workHours !== null
         ? rec.workHours
         : (rec?.checkIn && rec?.checkOut
           ? ((new Date(rec.checkOut) - new Date(rec.checkIn)) / (1000 * 60 * 60))
           : 0);
 
-      // Calculate overtime for the day (extra hours above 9)
       const overtime = hours > 9 ? hours - 9 : 0;
 
       days.push({
-        date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Kolkata" }),
-        day: d.toLocaleDateString("en-IN", { weekday: "long", timeZone: "Asia/Kolkata" }),
+        date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" }),
+        day: d.toLocaleDateString("en-IN", { weekday: "long" }),
         status,
         checkIn: rec?.checkIn || null,
         checkOut: rec?.checkOut || null,
@@ -132,8 +134,8 @@ export default function TimesheetModal({ open, onClose, records = [] }) {
                 <TableCell>{d.date}</TableCell>
                 <TableCell>{d.day}</TableCell>
                 <TableCell>{d.status}</TableCell>
-                <TableCell>{d.checkIn ? new Date(d.checkIn).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit', timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
-                <TableCell>{d.checkOut ? new Date(d.checkOut).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit', timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
+                <TableCell>{d.checkIn ? new Date(d.checkIn).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit' }) : "—"}</TableCell>
+                <TableCell>{d.checkOut ? new Date(d.checkOut).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit' }) : "—"}</TableCell>
                 <TableCell>{d.hours ? d.hours.toFixed(2) : "0.00"}</TableCell>
                 <TableCell>
                   {d.overtime > 0

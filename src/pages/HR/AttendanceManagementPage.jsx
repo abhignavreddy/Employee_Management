@@ -39,6 +39,20 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+// Helper functions for local date/time formatting (use user's local timezone)
+const displayTime = (timeString) => {
+  if (!timeString) return "—";
+  return new Date(timeString).toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const displayDate = (dateString) => {
+  if (!dateString) return "";
+  return new Date(dateString).toLocaleDateString("en-IN");
+};
+
 const AttendanceAPI = {
   getAll: () =>
     apiClient.get(`/attendance?page=0&size=500`).then((r) => r.data.content),
@@ -66,7 +80,7 @@ export default function AttendanceManagementPage() {
 
   const isManagerView = ["HR", "Manager", "CEO"].includes(user?.role);
 
-  // Helper to filter records by date ignoring timestamps
+  // Filter helper by date ignoring timestamps
   const filterByDate = (records, targetDate) => {
     return records.filter((r) => {
       if (!r.date) return false;
@@ -85,7 +99,7 @@ export default function AttendanceManagementPage() {
     try {
       const selfRecords = await AttendanceAPI.getByEmpId(user.empId);
 
-      // Get today's record for self
+      // Find today’s record for self
       const today = new Date().toISOString().split("T")[0];
       const personalToday = selfRecords.find((rec) => {
         const recDate = new Date(rec.date);
@@ -102,7 +116,7 @@ export default function AttendanceManagementPage() {
         // Get all without date filter
         const allRecords = await AttendanceAPI.getAll();
 
-        // Filter by selected date client side
+        // Filter by selected date on client side
         const filtered = filterByDate(allRecords, selectedDate);
         setRecords(filtered);
       } else {
@@ -152,26 +166,20 @@ export default function AttendanceManagementPage() {
     }
   };
 
-  // Filter all records (from all dates) for a given employee
   const employeeRecords = (empId) => records.filter((rec) => rec.empId === empId);
 
   const handleDownloadCSV = (empId, empName) => {
     const empRecs = employeeRecords(empId);
     if (!empRecs.length) return alert("No records to download");
     const rows = empRecs.map((r) => {
-      // CHANGED: Format checkIn and checkOut in IST timezone
-      const checkIn = r.checkIn
-        ? new Date(r.checkIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
-        : "-";
-      const checkOut = r.checkOut
-        ? new Date(r.checkOut).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
-        : "-";
+      const checkIn = r.checkIn ? displayTime(r.checkIn) : "-";
+      const checkOut = r.checkOut ? displayTime(r.checkOut) : "-";
       const workHours =
         r.checkIn && r.checkOut
           ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2)
           : 0;
       return [
-        new Date(r.date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
+        displayDate(r.date),
         checkIn,
         checkOut,
         workHours,
@@ -193,25 +201,13 @@ export default function AttendanceManagementPage() {
     const doc = new jsPDF();
     doc.text(`Attendance Records: ${empName}`, 14, 15);
     const tableData = empRecs.map((r) => {
-      // CHANGED: Format checkIn and checkOut in IST timezone
-      const checkIn = r.checkIn
-        ? new Date(r.checkIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
-        : "-";
-      const checkOut = r.checkOut
-        ? new Date(r.checkOut).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
-        : "-";
+      const checkIn = r.checkIn ? displayTime(r.checkIn) : "-";
+      const checkOut = r.checkOut ? displayTime(r.checkOut) : "-";
       const workHours =
         r.checkIn && r.checkOut
           ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2)
           : 0;
-      return [
-        new Date(r.date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
-        checkIn,
-        checkOut,
-        workHours,
-        r.status,
-        r.workMode || "-",
-      ];
+      return [displayDate(r.date), checkIn, checkOut, workHours, r.status, r.workMode || "-"];
     });
     autoTable(doc, { head: [["Date", "Check In", "Check Out", "Hours", "Status", "Mode"]], body: tableData, startY: 30 });
     doc.save(`${empName}_Attendance.pdf`);
@@ -376,9 +372,7 @@ export default function AttendanceManagementPage() {
       <Card className="border bg-white shadow-lg">
         <CardHeader>
           <CardTitle>Daily Attendance Records</CardTitle>
-          <CardDescription>
-            Viewing: {new Date(selectedDate).toLocaleDateString()}
-          </CardDescription>
+          <CardDescription>Viewing: {displayDate(selectedDate)}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-lg border bg-white">
@@ -400,36 +394,27 @@ export default function AttendanceManagementPage() {
                   <TableRow key={r.empId || r.id}>
                     {isManagerView && <TableCell>{r.empName}</TableCell>}
                     {isManagerView && <TableCell>{r.empId}</TableCell>}
-                    {/* CHANGED - checkIn in IST */}
                     <TableCell>
-                      {r.checkIn
-                        ? new Date(r.checkIn).toLocaleTimeString("en-IN", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            timeZone: "Asia/Kolkata",
-                          })
-                        : "—"}
+                      {r.checkIn ? displayTime(r.checkIn) : "—"}
                     </TableCell>
-
-                    {/* CHANGED - checkOut in IST */}
                     <TableCell>
-                      {r.checkOut
-                        ? new Date(r.checkOut).toLocaleTimeString("en-IN", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            timeZone: "Asia/Kolkata",
-                          })
-                        : "—"}
+                      {r.checkOut ? displayTime(r.checkOut) : "—"}
                     </TableCell>
-
                     <TableCell>
                       {r.workHours !== undefined && r.workHours !== null
-                        ? `${r.workHours.toFixed(2)} h`
+                        ? (() => {
+                            const hours = Math.floor(r.workHours);
+                            const minutes = Math.round((r.workHours - hours) * 60);
+                            return `${hours}h ${minutes}m`;
+                          })()
                         : r.checkIn && r.checkOut
-                        ? `${(
-                            (new Date(r.checkOut) - new Date(r.checkIn)) /
-                            (1000 * 60 * 60)
-                          ).toFixed(2)} h`
+                        ? (() => {
+                            const diffMs = new Date(r.checkOut) - new Date(r.checkIn);
+                            const totalMinutes = Math.floor(diffMs / (1000 * 60));
+                            const hours = Math.floor(totalMinutes / 60);
+                            const minutes = totalMinutes % 60;
+                            return `${hours}h ${minutes}m`;
+                          })()
                         : "—"}
                     </TableCell>
                     <TableCell>
@@ -440,19 +425,19 @@ export default function AttendanceManagementPage() {
                     <TableCell>{r.workMode || "—"}</TableCell>
                     <TableCell>
                       <Button
-                     size="sm"
-                    className="mr-2 bg-blue-600 hover:bg-blue-700 text-white w-[110px]"
-                    onClick={async () => {
-                   setSelectedEmpId(r.empId);
-                  setSelectedEmpName(r.empName);
-                  // Fetch all records for selected employee!
-                  const allEmpRecords = await AttendanceAPI.getByEmpId(r.empId);
-                  setSelectedEmpRecords(allEmpRecords);
-                 setIsTimesheetOpen(true);
-            }}>
-           Timesheet
-          </Button>
-
+                        size="sm"
+                        className="mr-2 bg-blue-600 hover:bg-blue-700 text-white w-[110px]"
+                        onClick={async () => {
+                          setSelectedEmpId(r.empId);
+                          setSelectedEmpName(r.empName);
+                          // fetch employee's full attendance records for timesheet
+                          const allEmpRecords = await AttendanceAPI.getByEmpId(r.empId);
+                          setSelectedEmpRecords(allEmpRecords);
+                          setIsTimesheetOpen(true);
+                        }}
+                      >
+                        Timesheet
+                      </Button>
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild className="w-[110px] bg-grey-50">
@@ -461,10 +446,14 @@ export default function AttendanceManagementPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent className="min-w-[110px] z-[9999] bg-white">
-                          <DropdownMenuItem onClick={() => handleDownloadCSV(r.empId, r.empName)}>
+                          <DropdownMenuItem
+                            onClick={() => handleDownloadCSV(r.empId, r.empName)}
+                          >
                             Download CSV
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDownloadPDF(r.empId, r.empName)}>
+                          <DropdownMenuItem
+                            onClick={() => handleDownloadPDF(r.empId, r.empName)}
+                          >
                             Download PDF
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -486,12 +475,12 @@ export default function AttendanceManagementPage() {
       </Card>
 
       <TimesheetModal
-  open={isTimesheetOpen}
-  onClose={() => setIsTimesheetOpen(false)}
-  records={selectedEmpRecords}
-  empId={selectedEmpId}
-  empName={selectedEmpName}
-/>
+        open={isTimesheetOpen}
+        onClose={() => setIsTimesheetOpen(false)}
+        records={selectedEmpRecords}
+        empId={selectedEmpId}
+        empName={selectedEmpName}
+      />
 
       <LeaveRequestModal
         open={isLeaveModalOpen}
