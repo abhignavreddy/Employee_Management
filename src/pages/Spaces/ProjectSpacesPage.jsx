@@ -1,26 +1,12 @@
+// ProjectSpacesPage.jsx
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { apiGet, apiPut } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
+import AssignTaskPage from "../Manager/AssignTaskPage"; // adjust path if necessary
 
-/**
- * ProjectSpacesPage.jsx
- * Final integrated page:
- * - Backlog & Sprint tabs
- * - Sprint dropdown + Employee filter (always visible)
- * - Columns: ASSIGNED | IN_PROGRESS | TESTING | COMPLETED | CANCELLED | SPILLOVER
- * - Equal-height cards, modal, manager-only controls, spillover tile, employee filter rules
- *
- * Assumptions:
- * - apiGet/apiPut are available and return Response-like objects
- * - useAuth returns { user } with { role, empId, name } fields
- * - Backend fields: id, taskName, taskDescription, assignedTo, empId, sprintNumber,
- *   previousSprints, spillover, spilloverFromSprint, status, priority, type,
- *   createdAt, updatedAt, completedAt, cancelledAt, dueDate
- */
-
-// Small helper to avoid StrictMode flicker for Droppable
+// Prevent StrictMode flicker for Droppable
 const StrictModeDroppable = ({ children, ...props }) => {
   const [enabled, setEnabled] = React.useState(false);
   React.useEffect(() => {
@@ -34,6 +20,157 @@ const StrictModeDroppable = ({ children, ...props }) => {
   return <Droppable {...props}>{children}</Droppable>;
 };
 
+// Helpers
+const fmtDateShort = (iso) => {
+  try {
+    const d = new Date(iso);
+    // Example result: "Jan 06"
+    return d.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
+  } catch {
+    return "";
+  }
+};
+
+const formatSprintName = (s) => {
+  // s: { sprintNumber, startDate, endDate }
+  if (!s) return "Sprint";
+  const sn = s.sprintNumber != null ? `Sprint ${s.sprintNumber}` : s.name || "Sprint";
+  if (s.startDate && s.endDate) {
+    return `${sn} (${fmtDateShort(s.startDate)} – ${fmtDateShort(s.endDate)})`;
+  }
+  return sn;
+};
+
+// Build year-week based sprints (front-end only fallback, monday..sunday)
+const generateLocalSprintsForYear = (year) => {
+  // find first Monday of the year
+  let start = new Date(Date.UTC(year, 0, 1)); // Jan 1 UTC
+  // shift to Monday
+  const dow = start.getUTCDay(); // 0 Sun ... 6 Sat; we want Monday (1)
+  const shift = ((1 - dow) + 7) % 7; // days to add to reach Monday
+  start = new Date(start.getTime() + shift * 24 * 3600 * 1000);
+
+  const sprints = [];
+  for (let i = 1; i <= 52; i++) {
+    const s = new Date(start.getTime() + (i - 1) * 7 * 24 * 3600 * 1000);
+    const e = new Date(s.getTime() + 6 * 24 * 3600 * 1000);
+    // save ISO strings
+    sprints.push({
+      id: `LOCAL-${year}-${i}`,
+      sprintNumber: i,
+      year,
+      startDate: s.toISOString(),
+      endDate: e.toISOString(),
+      active: false,
+    });
+  }
+  return sprints;
+};
+
+// Get a sliding window of up to `maxVisible` sprints centered around currentSprintNumber
+const visibleSprintWindow = (sprints, currentSprintNumber, maxVisible = 5) => {
+  if (!sprints || sprints.length === 0) return [];
+  // sort by sprintNumber ascending
+  const sorted = [...sprints].sort((a, b) => (a.sprintNumber || 0) - (b.sprintNumber || 0));
+  const len = sorted.length;
+  let centerIndex = 0;
+  if (currentSprintNumber != null) {
+    const idx = sorted.findIndex((x) => Number(x.sprintNumber) === Number(currentSprintNumber));
+    centerIndex = idx >= 0 ? idx : 0;
+  }
+  // compute window start/end
+  const half = Math.floor(maxVisible / 2);
+  let start = Math.max(0, centerIndex - half);
+  let end = Math.min(len - 1, start + maxVisible - 1);
+  // adjust start if we truncated at end
+  start = Math.max(0, end - (maxVisible - 1));
+  return sorted.slice(start, end + 1);
+};
+
+// --- Inline Sprint Dropdown (same as global sprint selector) ---
+function InlineSprintDropdown({
+  projectSprints = [],
+  value,
+  onChange,
+  showSpillover = false,
+}) {
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <div className="relative w-full">
+      {/* Trigger */}
+      <button
+        className="w-full border border-gray-300 bg-white rounded-md px-2 py-1 text-sm flex justify-between items-center"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="truncate">
+          {projectSprints.find((sp) => sp.sprintNumber === value)?.label ||
+            "Select Sprint"}
+        </span>
+        <span className="text-gray-500">▼</span>
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-[180px] overflow-y-auto">
+          {/* Backlog */}
+          <div
+            className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 ${
+              value === null ? "bg-blue-50" : ""
+            }`}
+            onClick={() => {
+              onChange(null);
+              setOpen(false);
+            }}
+          >
+            Backlog
+          </div>
+
+          {/* Sprints */}
+          {projectSprints.map((sp) => (
+            <div
+              key={sp.id}
+              className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 flex justify-between items-center ${
+                sp.sprintNumber === value ? "bg-blue-50" : ""
+              }`}
+              onClick={() => {
+                onChange(sp.sprintNumber);
+                setOpen(false);
+              }}
+            >
+              <span className={`${sp.active ? "font-semibold text-blue-700" : ""}`}>
+                {sp.label}
+              </span>
+
+              {sp.active && (
+                <span className="text-xs text-green-700 font-semibold ml-2">
+                  Current
+                </span>
+              )}
+            </div>
+          ))}
+
+          {/* Spillover */}
+          {showSpillover && (
+            <div
+              className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 ${
+                value === 999 ? "bg-blue-50" : ""
+              }`}
+              onClick={() => {
+                onChange(999);
+                setOpen(false);
+              }}
+            >
+              Spillover
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function ProjectSpacesPage() {
   const { projectId } = useParams();
   const { user } = useAuth();
@@ -44,23 +181,24 @@ export default function ProjectSpacesPage() {
   const [employees, setEmployees] = useState([]);
 
   // UI
-  const [activeTab, setActiveTab] = useState("sprint"); // default to sprint view
+  const [activeTab, setActiveTab] = useState("sprint");
   const [loading, setLoading] = useState(true);
 
-  // Filters and sprint selection
-  const [projectSprints, setProjectSprints] = useState([]); // [{id, name, startDate, endDate}]
-  const [selectedSprint, setSelectedSprint] = useState(null);
+  // sprints
+  const [projectSprints, setProjectSprints] = useState([]); // {id, sprintNumber, startDate, endDate, active}
+  const [selectedSprint, setSelectedSprint] = useState(null); // numeric sprintNumber
   const [selectedEmployee, setSelectedEmployee] = useState("ALL");
 
-  // Modal
+  // modals
   const [selectedStory, setSelectedStory] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [showSprintMenu, setShowSprintMenu] = useState(false);
+
 
   const isManager = user?.role === "Manager" || user?.role === "CEO";
 
-  // -------------------
   // Loaders
-  // -------------------
   const loadProject = async () => {
     try {
       const res = await apiGet(`/client-onboard/${projectId}`);
@@ -114,8 +252,7 @@ export default function ProjectSpacesPage() {
       if (!res.ok) throw new Error("Failed to load stories");
       const data = await res.json();
       const raw = Array.isArray(data) ? data : Array.isArray(data.content) ? data.content : [];
-      const norm = normalizeStories(raw);
-      setStories(norm);
+      setStories(normalizeStories(raw));
     } catch (e) {
       console.error("loadStories:", e);
       setStories([]);
@@ -124,9 +261,86 @@ export default function ProjectSpacesPage() {
     }
   };
 
-  // -------------------
-  // Effects: initial data
-  // -------------------
+  // Load sprints for project (from backend). If none, fallback to local generator.
+  const loadSprints = async (projectName) => {
+    if (!projectName) return;
+    try {
+      // Try backend list
+      const res = await apiGet(`/sprints/${encodeURIComponent(projectName)}`);
+      if (res.ok) {
+        const data = await res.json();
+        // Expect array of SprintResponse: { id, project, sprintNumber, year, startDate, endDate, active }
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((s) => ({
+            id: s.id || s._id || `${s.project}-${s.sprintNumber}`,
+            sprintNumber: s.sprintNumber,
+            year: s.year,
+            startDate: s.startDate,
+            endDate: s.endDate,
+            active: !!s.active,
+            name: s.name || `Sprint ${s.sprintNumber}`,
+          }));
+          setProjectSprints(mapped);
+          // try to detect current sprint via date
+          const detected = detectCurrentSprint(mapped);
+          setSelectedSprint(detected || mapped.find((x) => x.active)?.sprintNumber || mapped[0]?.sprintNumber || 1);
+          return;
+        }
+      } else {
+        // Non-ok: still try to get /current for a hint
+        console.warn("sprints GET returned non-ok:", res.status);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch sprints for project:", e);
+    }
+
+    // fallback: try GET /sprints/{project}/current to at least get active sprint number
+    try {
+      const curRes = await apiGet(`/sprints/${encodeURIComponent(projectName)}/current`);
+      if (curRes.ok) {
+        const cs = await curRes.json();
+        if (cs && cs.sprintNumber) {
+          // generate local sprints for that year and mark active
+          const year = cs.year || new Date().getFullYear();
+          const local = generateLocalSprintsForYear(year);
+          // mark active
+          local.forEach((l) => {
+            if (l.sprintNumber === cs.sprintNumber) l.active = true;
+          });
+          setProjectSprints(local);
+          setSelectedSprint(cs.sprintNumber);
+          return;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Final fallback: create local 52-week set for current year (front-end only)
+    const local = generateLocalSprintsForYear(new Date().getFullYear());
+    local[0].active = true;
+    setProjectSprints(local);
+    setSelectedSprint(local[0].sprintNumber);
+  };
+
+  // detect by today's date
+  const detectCurrentSprint = (sprints) => {
+    if (!sprints || sprints.length === 0) return null;
+    const now = new Date();
+    const found = sprints.find((s) => {
+      if (!s.startDate || !s.endDate) return false;
+      try {
+        const st = new Date(s.startDate);
+        const en = new Date(s.endDate);
+        return now >= st && now <= en;
+      } catch {
+        return false;
+      }
+    });
+    return found ? found.sprintNumber : null;
+  };
+
+  // Effects on mount / project change
   useEffect(() => {
     if (!projectId) return;
     loadProject();
@@ -136,47 +350,75 @@ export default function ProjectSpacesPage() {
   useEffect(() => {
     if (!project) return;
 
-    // use backend project.sprints if provided, else generate 52 + spillover placeholder
-    if (Array.isArray(project.sprints) && project.sprints.length) {
-      setProjectSprints(
-        project.sprints.map((s) => ({
-          id: s.id,
-          name: s.name || `Sprint ${s.id}`,
-          startDate: s.startDate,
-          endDate: s.endDate,
-        }))
-      );
-      const defaultSprint = project.currentSprintNumber != null ? project.currentSprintNumber : project.sprints[0]?.id || null;
-      setSelectedSprint(defaultSprint);
-    } else {
-      const sprints = Array.from({ length: 52 }).map((_, i) => ({ id: i + 1, name: `Sprint ${i + 1}` }));
-      sprints.push({ id: 999, name: "Spillover" });
-      setProjectSprints(sprints);
-      const defaultSprint = project.currentSprintNumber != null ? project.currentSprintNumber : 1;
-      setSelectedSprint(defaultSprint);
-    }
+    const projectName =
+      project?.clientInfo?.projectName ||
+      project?.projectId ||
+      project?.projectName;
 
-    const name = project?.clientInfo?.projectName;
-    if (name) loadStories(name);
+    if (!projectName) return;
+
+    const loadBackendSprints = async () => {
+      try {
+        const res = await apiGet(`/sprints/${projectName}`);
+        if (!res.ok) {
+          console.warn("⚠ Failed to load sprints from backend");
+          setProjectSprints([]);
+          return;
+        }
+
+        const backendSprints = await res.json();
+
+        const formatted = backendSprints.map((s) => {
+          const start = s.startDate ? new Date(s.startDate) : null;
+          const end = s.endDate ? new Date(s.endDate) : null;
+
+          const label =
+            start && end
+              ? `${s.active ? "Current Sprint" : `Sprint ${s.sprintNumber}`} (${start.toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "2-digit",
+                })} – ${end.toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "2-digit",
+                })})`
+              : s.active
+              ? "Current Sprint"
+              : `Sprint ${s.sprintNumber}`;
+
+          return {
+            id: s.id,
+            sprintNumber: s.sprintNumber,
+            active: s.active,
+            label,
+          };
+        });
+
+        setProjectSprints(formatted);
+
+        // detect active sprint
+        const active = formatted.find((s) => s.active);
+        setSelectedSprint(active ? active.sprintNumber : formatted[0]?.sprintNumber);
+        
+      } catch (err) {
+        console.error("❌ Sprint load failed:", err);
+      }
+    };
+
+    loadBackendSprints();
+
+    // Load stories separately
+    loadStories(projectName);
+
   }, [project]);
 
-  // -------------------
-  // Helpers
-  // -------------------
-  const isOverdue = (s) => {
-    if (!s?.dueDate) return false;
-    if (s.status === "COMPLETED" || s.status === "CANCELLED") return false;
-    try {
-      return new Date() > new Date(s.dueDate);
-    } catch {
-      return false;
-    }
-  };
+
+
+  // Derived lists
+  const backlog = useMemo(() => stories.filter((s) => !s.sprintNumber || s.status === "BACKLOG"), [stories]);
 
   const storyVisibleToViewer = (s) => {
     if (isManager) {
       if (selectedEmployee && selectedEmployee !== "ALL") {
-        // selectedEmployee stored as empId or employee id
         return String(s.empId) === String(selectedEmployee) || (s.assignedTo || "").includes(selectedEmployee);
       }
       return true;
@@ -186,11 +428,6 @@ export default function ProjectSpacesPage() {
       return matchById || matchByName;
     }
   };
-
-  // -------------------
-  // Derived lists / filters
-  // -------------------
-  const backlog = useMemo(() => stories.filter((s) => !s.sprintNumber || s.status === "BACKLOG"), [stories]);
 
   const sprintStories = useMemo(() => {
     if (selectedSprint == null) return [];
@@ -217,9 +454,7 @@ export default function ProjectSpacesPage() {
     return map;
   }, [sprintStories]);
 
-  // -------------------
-  // Update helpers & DnD
-  // -------------------
+  // Updates & DnD
   const updateStory = async (id, payload) => {
     try {
       await apiPut(`/story-table/${id}`, payload);
@@ -237,12 +472,11 @@ export default function ProjectSpacesPage() {
       const story = stories.find((x) => String(x.id) === String(draggableId));
       if (!story) return;
 
-      // Prevent non-managers from moving items that are inside the spillover area (enforce option C)
+      // Prevent non-managers from moving items that are inside the spillover area
       const movedFromSpillover =
         source.droppableId === "SPILLOVER_TILE" ||
         (story.spillover && story.spilloverFromSprint === selectedSprint);
       if (movedFromSpillover && !isManager) {
-        // revert by reloading
         await loadStories(project?.clientInfo?.projectName);
         return;
       }
@@ -258,9 +492,7 @@ export default function ProjectSpacesPage() {
     }
   };
 
-  // -------------------
-  // Modal
-  // -------------------
+  // modal controls
   const openModal = (story) => {
     setSelectedStory(story);
     setModalOpen(true);
@@ -288,9 +520,7 @@ export default function ProjectSpacesPage() {
     }
   };
 
-  // -------------------
   // UI constants
-  // -------------------
   const columns = ["ASSIGNED", "IN_PROGRESS", "TESTING", "COMPLETED", "CANCELLED"];
   const columnStyles = {
     ASSIGNED: "bg-blue-50 border-blue-200",
@@ -307,9 +537,19 @@ export default function ProjectSpacesPage() {
     CANCELLED: "text-gray-600",
   };
 
-  // -------------------
-  // Render
-  // -------------------
+  // convenience: visible 5 sprints for dropdown
+  const sprintWindow = visibleSprintWindow(projectSprints, selectedSprint, 5);
+
+  const isOverdue = (s) => {
+    if (!s?.dueDate) return false;
+    if (s.status === "COMPLETED" || s.status === "CANCELLED") return false;
+    try {
+      return new Date() > new Date(s.dueDate);
+    } catch {
+      return false;
+    }
+  };
+
   return (
     <div className="p-6 min-h-screen bg-gray-50">
       {/* Header */}
@@ -318,52 +558,99 @@ export default function ProjectSpacesPage() {
         <p className="text-gray-500 text-sm">{project?.clientInfo?.businessName || ""}</p>
       </div>
 
-      {/* Tabs + dropdowns (Sprint behaves like a tab, dropdowns always visible on right) */}
+      {/* Tabs + Create button + filters */}
       <div className="flex items-center border-b mt-4 w-full">
-        <div className="flex">
+        <div className="flex items-center">
           <button
-            className={`px-4 py-2 text-sm font-medium transition border-b-2 ${
-              activeTab === "backlog" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-800"
-            }`}
+            className={`px-4 py-2 text-sm font-medium transition border-b-2 ${activeTab === "backlog" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-800"}`}
             onClick={() => setActiveTab("backlog")}
           >
             Backlog
           </button>
 
           <button
-            className={`px-4 py-2 text-sm font-medium transition border-b-2 ml-2 ${
-              activeTab === "sprint" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-800"
-            }`}
+            className={`px-4 py-2 text-sm font-medium transition border-b-2 ml-2 ${activeTab === "sprint" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-800"}`}
             onClick={() => setActiveTab("sprint")}
           >
             Sprint
           </button>
+
+          {/* Create Story button */}
+          <div className="ml-4">
+            <button
+              className="px-3 py-1 bg-blue-600 text-white rounded-md shadow hover:bg-blue-700 text-sm"
+              onClick={() => setCreateModalOpen(true)}
+            >
+              + Create Story
+            </button>
+          </div>
         </div>
 
-        {/* Right side filters (always visible) */}
+        {/* Right side filters */}
         <div className="flex items-center gap-4 ml-auto pr-4">
           {/* Sprint dropdown */}
           <div className="flex flex-col">
-            <label className="text-xs text-gray-600">Sprint</label>
-            <select
-              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-              value={selectedSprint ?? ""}
-              onChange={(e) => {
-                const val = e.target.value === "" ? null : Number(e.target.value);
-                setSelectedSprint(val);
-                // If switching to sprint view, ensure activeTab is sprint
-                setActiveTab("sprint");
-              }}
-            >
-              {projectSprints.map((sp) => (
-                <option key={sp.id} value={sp.id}>
-                  {sp.name}
-                </option>
-              ))}
-            </select>
+            <label className="text-xs text-black">Sprint</label>
+
+            <div className="relative w-[220px]">
+              {/* Trigger button */}
+              <button
+                className="w-full border border-gray-300 bg-white rounded-md px-2 py-1 text-sm flex justify-between items-center"
+                onClick={() => setShowSprintMenu((prev) => !prev)}
+              >
+                <span className="truncate">
+                  {
+                    projectSprints.find((sp) => sp.sprintNumber === selectedSprint)
+                      ?.label || "Select Sprint"
+                  }
+                </span>
+                <span className="text-gray-500">▼</span>
+              </button>
+
+              {showSprintMenu && (
+                <div
+                  className="absolute mt-1 w-full bg-white border border-gray-200 text-black rounded-md shadow-lg z-50
+                            max-h-[180px] overflow-y-auto"
+                >
+                  {projectSprints.map((sp) => {
+                    const isActiveSprint = sp.active === true;
+
+                    return (
+                      <div
+                        key={sp.id}
+                        className={`px-3 py-2 text-sm cursor-pointer 
+                          hover:bg-gray-100 flex justify-between items-center
+                          ${sp.sprintNumber === selectedSprint ? "bg-blue-50" : ""}`}
+                        onClick={() => {
+                          setSelectedSprint(sp.sprintNumber);
+                          setActiveTab("sprint");
+                          setShowSprintMenu(false);
+                        }}
+                      >
+                        <span
+                          className={`${
+                            isActiveSprint ? "font-semibold text-blue-700" : "text-gray-700"
+                          }`}
+                        >
+                          {sp.label}
+                        </span>
+
+                        {isActiveSprint && (
+                          <span className="text-xs text-green-700 font-semibold ml-2">
+                            Current Sprint
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Employee filter (manager only) */}
+
+
+          {/* Employee filter */}
           {isManager && (
             <div className="flex flex-col">
               <label className="text-xs text-gray-600">Employee</label>
@@ -384,97 +671,89 @@ export default function ProjectSpacesPage() {
         </div>
       </div>
 
-      {/* Main content */}
+      {/* Main */}
       {loading ? (
         <p className="text-sm text-gray-500 mt-4">Loading stories...</p>
       ) : activeTab === "backlog" ? (
-        <div className="grid sm:grid-cols-2 gap-4 mt-4">
-          {backlog.length ? (
-            backlog.map((s) => {
-              const overdue = isOverdue(s);
-              return (
-                <div key={s.id} className="bg-white border rounded-xl p-4 shadow-sm hover:shadow-md">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{s.taskName}</h3>
-                      <p className="text-sm text-gray-700 mt-1 line-clamp-3">{s.taskDescription || "No description"}</p>
-                    </div>
-                    <div className="text-right space-y-1">
-                      {s.spillover && s.spilloverFromSprint && <span className="inline-block px-2 py-0.5 text-xs rounded bg-amber-100 text-amber-800">Spillover</span>}
-                      {overdue && <span className="inline-block px-2 py-0.5 text-xs rounded bg-red-100 text-red-800">Overdue</span>}
-                      <div className="text-xs text-gray-400 mt-2">{s.priority || "—"}</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {/* Assign employee */}
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 block mb-1">Assign Employee</label>
-                      <select
-                        className="w-full border border-gray-300 rounded-md p-2 text-sm"
-                        value={s.assignedTo || ""}
-                        onChange={async (e) => {
-                          const emp = e.target.value;
-                          try {
-                            const newStatus = s.status === "BACKLOG" ? "ASSIGNED" : s.status;
-                            await updateStory(s.id, { assignedTo: emp || null, status: newStatus });
-                          } catch (err) {
-                            console.error(err);
-                          }
-                        }}
-                      >
-                        <option value="">Select employee</option>
-                        {employees.map((emp) => (
-                          <option key={emp.id} value={`${emp.firstName} ${emp.lastName}`}>
-                            {emp.firstName} {emp.lastName} ({emp.empRole})
-                          </option>
-                        ))}
-                      </select>
-                      {s.assignedTo && <p className="text-xs text-green-600 mt-1">Assigned to {s.assignedTo}</p>}
+        <div className="mt-4">
+          <div className="grid sm:grid-cols-2 gap-4">
+            {backlog.length ? (
+              backlog.map((s) => {
+                const overdue = isOverdue(s);
+                return (
+                  <div key={s.id} className="bg-white border rounded-xl p-4 shadow-sm hover:shadow-md">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{s.taskName}</h3>
+                        <p className="text-sm text-gray-700 mt-1 line-clamp-3">{s.taskDescription || "No description"}</p>
+                      </div>
+                      <div className="text-right space-y-1">
+                        {s.spillover && s.spilloverFromSprint && <span className="inline-block px-2 py-0.5 text-xs rounded bg-amber-100 text-amber-800">Spillover</span>}
+                        {overdue && <span className="inline-block px-2 py-0.5 text-xs rounded bg-red-100 text-red-800">Overdue</span>}
+                        <div className="text-xs text-gray-400 mt-2">{s.priority || "—"}</div>
+                      </div>
                     </div>
 
-                    {/* Sprint selector */}
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 block mb-1">Sprint</label>
-                      <select
-                        className="w-full border border-gray-300 rounded-md p-2 text-sm"
-                        value={s.sprintNumber ?? ""}
-                        onChange={async (e) => {
-                          const val = e.target.value;
-                          try {
-                            await updateStory(s.id, { sprintNumber: val === "" ? null : Number(val) });
-                          } catch (err) {
-                            console.error(err);
-                          }
-                        }}
-                      >
-                        <option value="">No sprint (Backlog)</option>
-                        {projectSprints.map((sp) => (
-                          <option key={sp.id} value={sp.id}>
-                            {sp.name}
-                          </option>
-                        ))}
-                        <option value="999">Spillover</option>
-                      </select>
-                      {s.sprintNumber && <p className="text-xs text-blue-600 mt-1">Planned for Sprint {s.sprintNumber}</p>}
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 block mb-1">Assign</label>
+                        <select
+                          className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                          value={s.assignedTo || ""}
+                          onChange={async (e) => {
+                            const emp = e.target.value;
+                            try {
+                              const newStatus = s.status === "BACKLOG" ? "ASSIGNED" : s.status;
+                              await updateStory(s.id, { assignedTo: emp || null, status: newStatus });
+                            } catch (err) {
+                              console.error(err);
+                            }
+                          }}
+                        >
+                          <option value="">Select employee</option>
+                          {employees.map((emp) => (
+                            <option key={emp.id} value={`${emp.firstName} ${emp.lastName}`}>
+                              {emp.firstName} {emp.lastName} ({emp.empRole})
+                            </option>
+                          ))}
+                        </select>
+                        {s.assignedTo && <p className="text-xs text-green-600 mt-1">Assigned to {s.assignedTo}</p>}
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 block mb-1">Sprint</label>
+                        <InlineSprintDropdown
+                          projectSprints={projectSprints}
+                          value={s.sprintNumber ?? null}
+                          onChange={async (newVal) => {
+                            try {
+                              await updateStory(s.id, {
+                                sprintNumber: newVal,
+                              });
+                            } catch (err) {
+                              console.error(err);
+                            }
+                          }}
+                          showSpillover={true}
+                        />
+
+                        {s.sprintNumber && <p className="text-xs text-blue-600 mt-1">Planned for Sprint {s.sprintNumber}</p>}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between">
+                      <div className="text-xs text-gray-500">Created: {s.createdAt ? new Date(s.createdAt).toLocaleDateString() : "—"}</div>
+                      <button className="text-sm text-indigo-600 hover:underline" onClick={() => openModal(s)}>View details</button>
                     </div>
                   </div>
-
-                  <div className="mt-4 flex items-center justify-between">
-                    <div className="text-xs text-gray-500">Created: {s.createdAt ? new Date(s.createdAt).toLocaleDateString() : "—"}</div>
-                    <button className="text-sm text-indigo-600 hover:underline" onClick={() => openModal(s)}>
-                      View details
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          ) : (
-            <p className="text-sm text-gray-500 mt-4">No backlog stories found.</p>
-          )}
+                );
+              })
+            ) : (
+              <p className="text-sm text-gray-500 mt-4">No backlog stories found.</p>
+            )}
+          </div>
         </div>
       ) : (
-        // Sprint view
         <>
           {!selectedSprint ? (
             <p className="text-sm text-gray-500 mt-4">No sprint selected.</p>
@@ -506,9 +785,7 @@ export default function ProjectSpacesPage() {
                                     onClick={() => openModal(story)}
                                   >
                                     <div>
-                                      <h4 className="text-sm font-medium text-gray-900 line-clamp-1" title={story.taskName}>
-                                        {story.taskName}
-                                      </h4>
+                                      <h4 className="text-sm font-medium text-gray-900 line-clamp-1" title={story.taskName}>{story.taskName}</h4>
                                       <p className="text-xs text-gray-600 mt-1 line-clamp-3">{story.taskDescription || "No description"}</p>
                                     </div>
 
@@ -538,7 +815,7 @@ export default function ProjectSpacesPage() {
                   </StrictModeDroppable>
                 ))}
 
-                {/* Spillover tile (last column) */}
+                {/* Spillover tile */}
                 <div className="flex flex-col rounded-xl border p-3 shadow-sm bg-zinc-50">
                   <h3 className="text-sm font-semibold mb-3 text-amber-700">Spillover</h3>
 
@@ -546,7 +823,6 @@ export default function ProjectSpacesPage() {
                     {spilloverFromSelectedSprint.length ? (
                       spilloverFromSelectedSprint.map((spStory, idx) => {
                         const overdue = isOverdue(spStory);
-                        // Manager can drag; non-manager sees static cards
                         if (isManager) {
                           return (
                             <Draggable key={String(spStory.id)} draggableId={String(spStory.id)} index={idx}>
@@ -555,7 +831,7 @@ export default function ProjectSpacesPage() {
                                   ref={drag.innerRef}
                                   {...drag.draggableProps}
                                   {...drag.dragHandleProps}
-                                  className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm hover:shadow-md min-h-[160px] max-h-40 overflow-hidden flex flex-col justify-between cursor-pointer"
+                                  className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm hover:shadow-md min-h-40 max-h-40 overflow-hidden flex flex-col justify-between cursor-pointer"
                                   onClick={() => openModal(spStory)}
                                 >
                                   <div>
@@ -583,7 +859,7 @@ export default function ProjectSpacesPage() {
                           return (
                             <div
                               key={spStory.id}
-                              className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm min-h-[160px] max-h-[160px] overflow-hidden flex flex-col justify-between cursor-pointer"
+                              className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm min-h-40 max-h-40 overflow-hidden flex flex-col justify-between cursor-pointer"
                               onClick={() => openModal(spStory)}
                             >
                               <div>
@@ -618,7 +894,7 @@ export default function ProjectSpacesPage() {
         </>
       )}
 
-      {/* Modal (centered) */}
+      {/* Story Details Modal */}
       {modalOpen && selectedStory && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true">
           <div className="w-full max-w-4xl bg-white rounded-xl shadow-xl overflow-auto max-h-[90vh]">
@@ -669,7 +945,7 @@ export default function ProjectSpacesPage() {
                     <div>Updated: {selectedStory.updatedAt ? new Date(selectedStory.updatedAt).toLocaleString() : "—"}</div>
                     <div>Completed: {selectedStory.completedAt ? new Date(selectedStory.completedAt).toLocaleString() : "—"}</div>
                     <div>Cancelled: {selectedStory.cancelledAt ? new Date(selectedStory.cancelledAt).toLocaleString() : "—"}</div>
-                    <div>Due date: {selectedStory.dueDate ? new Date(selectedStory.dueDate).toLocaleString() : "—"}</div>
+                    <div>Due date: {selectedStory.dueDate ? new Date(selectedStory.dueDate).toLocaleDateString() : "—"}</div>
                   </div>
                 </section>
               </div>
@@ -715,7 +991,7 @@ export default function ProjectSpacesPage() {
                       <select className="w-full border border-gray-300 rounded-md p-2 text-sm" value={selectedStory.sprintNumber ?? ""} onChange={(e) => setSelectedStory((s) => ({ ...s, sprintNumber: e.target.value === "" ? null : Number(e.target.value) }))}>
                         <option value="">Backlog</option>
                         {projectSprints.map((sp) => (
-                          <option key={sp.id} value={sp.id}>{sp.name}</option>
+                          <option key={sp.id} value={sp.sprintNumber}>{formatSprintName(sp)}</option>
                         ))}
                         <option value="999">Spillover</option>
                       </select>
@@ -760,6 +1036,7 @@ export default function ProjectSpacesPage() {
                             spilloverFromSprint: selectedStory.spilloverFromSprint || null,
                           };
                           await saveStoryChanges(updates);
+                          closeModal();
                         }}
                       >
                         Save
@@ -777,14 +1054,36 @@ export default function ProjectSpacesPage() {
                     </div>
                   ) : (
                     <div>
-                      <button className="rounded border border-zinc-200 px-3 py-2" onClick={closeModal}>
-                        Close
-                      </button>
+                      <button className="rounded border border-zinc-200 px-3 py-2" onClick={closeModal}>Close</button>
                     </div>
                   )}
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Story modal - renders AssignTaskPage component inside */}
+      {createModalOpen && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-4xl overflow-auto max-h-[90vh] relative">
+            <button
+              className="absolute top-3 right-3 text-gray-600 hover:text-black z-50 p-2"
+              onClick={() => setCreateModalOpen(false)}
+            >
+              ✕
+            </button>
+
+            <AssignTaskPage
+              projectName={project?.clientInfo?.projectName}
+              onClose={() => {
+                setCreateModalOpen(false);
+                // refresh stories & sprints after create
+                loadStories(project?.clientInfo?.projectName);
+                loadSprints(project?.clientInfo?.projectName);
+              }}
+            />
           </div>
         </div>
       )}

@@ -456,7 +456,7 @@ export default function AttendanceManagementPage() {
                             <Download size={18} className="mr-1" /> Download
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent className="min-w-[110px] z-[9999] bg-white">
+                        <DropdownMenuContent className="min-w-[110px] z-9999 bg-white">
                           <DropdownMenuItem onClick={() => handleDownloadCSV(r.empId, r.empName)}>
                             Download CSV
                           </DropdownMenuItem>

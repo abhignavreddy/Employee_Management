@@ -4,8 +4,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import AppShell from "./components/Layout/AppShell";
 import ProtectedRoute from "./components/ProtectedRoute";
-import OnboardingPage from "./pages/HR/OnboardingPage";
-import { Toaster } from "sonner"; // ✅ Add this import
+import { Toaster } from "sonner"; 
 
 // Auth Pages
 import Login from "./pages/Login";
@@ -28,13 +27,15 @@ import SpacesPage from "./pages/SpacesPage";
 import MyTasksPage from "./pages/Employee/MyTasksPage";
 import EmployeeBoardPage from "./pages/Employee/EmployeeBoard";
 import MyAttendancePage from "./pages/Employee/MyAttendancePage";
+import MySalaryPage from "./pages/Employee/MySalaryPage.jsx";
 
 // HR Pages
 import PayrollPage from "./pages/HR/PayrollPage";
 import LeaveRequestsPage from "./pages/HR/LeaveRequestsPage";
 import EmployeeDirectoryPage from "./pages/HR/EmployeeDirectoryPage";
 import AttendanceManagementPage from "./pages/HR/AttendanceManagementPage";
-import OnboardingHRPage from "./pages/HR/OnboardingPage";
+import DocumentManagementPage from "./pages/HR/DocumentManagementpage.jsx";
+import OnboardingPage from "./pages/HR/OnboardingPage";
 
 // CEO Pages
 import CEODashboardPage from "./pages/CEO/CEODashboardPage";
@@ -42,7 +43,8 @@ import DepartmentReportsPage from "./pages/CEO/DepartmentReportsPage";
 import SalariesOverviewPage from "./pages/CEO/SalariesOverviewPage";
 import TopPerformersPage from "./pages/CEO/TopPerformersPage";
 import TaskAnalyticsPage from "./pages/CEO/TaskAnalyticsPage";
-import MyAttendancePage from "./pages/Employee/MyAttendancePage";
+import ProfilePage from "./pages/Employee/ProfilePage.jsx";
+
 
 // Placeholder Page
 const PlaceholderPage = ({ title }) => (
@@ -202,6 +204,16 @@ function App() {
               }
             />
             <Route
+              path="/documents-management"
+              element={
+                <ProtectedRoute allowedRoles={["HR", "Manager", "CEO"]}>
+                  <AppShell>
+                    <DocumentManagementPage />
+                  </AppShell>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/payroll"
               element={
                 <ProtectedRoute allowedRoles={["HR"]}>
@@ -301,6 +313,16 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={["Employee"]}>
                   <AppShell>
+                    <MySalaryPage />
+                  </AppShell>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/my-salary"
+              element={
+                <ProtectedRoute allowedRoles={["Employee"]}>
+                  <AppShell>
                     <PlaceholderPage title="My Salary" />
                   </AppShell>
                 </ProtectedRoute>
@@ -311,7 +333,7 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={["Employee"]}>
                   <AppShell>
-                    <PlaceholderPage title="Profile" />
+                    <ProfilePage />
                   </AppShell>
                 </ProtectedRoute>
               }

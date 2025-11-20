@@ -94,10 +94,17 @@ export const AuthProvider = ({ children }) => {
       console.log('📡 Login response status:', res.status, res.statusText);
 
       if (!res.ok) {
-        const errText = await res.text();
-        console.error('❌ Login failed:', errText);
-        return { success: false, error: errText || 'Invalid credentials' };
+        try {
+          const errorJson = await res.json();
+          return {
+            success: false,
+            error: errorJson.message || "Invalid credentials"
+          };
+        } catch (e) {
+          return { success: false, error: "Invalid credentials" };
+        }
       }
+
 
       const loginResp = await res.json();
       console.log('📦 Login response data:', loginResp);

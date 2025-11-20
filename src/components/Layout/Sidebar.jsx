@@ -28,24 +28,24 @@ const menuConfig = {
   Manager: [
     { path: "/projects", label: "Projects", icon: Users },
     { path: "/employees", label: "Employees", icon: Users },
-    { path: "/assign-task", label: "Create Story", icon: ClipboardList },
+
     { path: "/attendance", label: "Attendance", icon: Calendar },
     { path: "/leave-requests", label: "Leave Requests", icon: FileText },
     { path: "/all-tasks", label: "All Tasks", icon: FileText },
     { path: "/task-history", label: "Task History", icon: History },
+    { path: "/documents-management", label: "Document Management", icon: FolderPlus },
   ],
   HR: [
     { path: "/employee-directory", label: "Employee Directory", icon: Users },
     { path: "/attendance", label: "Attendance", icon: Calendar },
-
     { path: "/onboarding", label: "Onboarding", icon: UserPlus },
     { path: "/leave-requests", label: "Leave Requests", icon: FileText },
     { path: "/payroll", label: "Payroll", icon: DollarSign },
+    { path: "/documents-management", label: "Document Management", icon: FolderPlus },
   ],
   CEO: [
     { path: "/projects", label: "Projects", icon: Users },
     { path: "/employees", label: "Employees", icon: Users },
-    { path: "/assign-task", label: "Create Story", icon: ClipboardList },
     { path: "/attendance", label: "Attendance", icon: Calendar },
     { path: "/leave-requests", label: "Leave Requests", icon: FileText },
     { path: "/all-tasks", label: "All Tasks", icon: FileText },
@@ -55,12 +55,10 @@ const menuConfig = {
     { path: "/salaries-overview", label: "Salaries Overview", icon: DollarSign },
     { path: "/top-performers", label: "Top Performers", icon: Award },
     { path: "/task-analytics", label: "Task Analytics", icon: TrendingUp },
-
-  
+    { path: "/documents-management", label: "Document Management", icon: FolderPlus },
   ],
   Employee: [
-    { path: "/my-tasks", label: "My Tasks", icon: ClipboardList },
-    { path: "/employee-board", label: "Employee Board", icon: ClipboardList },
+    { path: "/my-tasks", label: "My Tasks", icon: ClipboardList }, 
     { path: "/my-attendance", label: "Attendance History", icon: Calendar },
     { path: "/my-salary", label: "Salary Details", icon: DollarSign },
     { path: "/profile", label: "Profile", icon: Users },
@@ -109,7 +107,7 @@ function ExpandableSection({ title, projects, collapsed, location }) {
                       : "text-slate-300 hover:bg-slate-700 hover:text-white"
                   }`}
                 >
-                  <ClipboardList className="w-4 h-4 flex-shrink-0" />
+                  <ClipboardList className="w-4 h-4 shrink-0" />
                   {!collapsed && <span className="truncate">{p.name}</span>}
                 </Link>
               </li>
@@ -126,7 +124,7 @@ const Sidebar = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
-  const [spacesOpen, setSpacesOpen] = useState(true);
+  const [spacesOpen, setSpacesOpen] = useState(false);
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
 
@@ -189,7 +187,7 @@ const Sidebar = () => {
 
   return (
     <div
-      className={`h-screen bg-gradient-to-b from-slate-900 to-slate-800 text-white flex flex-col transition-all duration-300 ${
+      className={`h-screen bg-linear-to-b from-slate-900 to-slate-800 text-white flex flex-col transition-all duration-300 ${
         collapsed ? "w-20" : "w-64"
       }`}
     >
@@ -314,7 +312,7 @@ const Sidebar = () => {
                       : "text-slate-300 hover:bg-slate-700 hover:text-white"
                   } ${collapsed ? "justify-center" : ""}`}
                 >
-                  <Icon className="w-5 h-5 flex-shrink-0" />
+                  <Icon className="w-5 h-5 shrink-0" />
                   {!collapsed && (
                     <span className="text-sm font-medium">{item.label}</span>
                   )}

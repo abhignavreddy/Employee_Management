@@ -307,6 +307,18 @@ export default function ClientIntakePage() {
 
       setFiles([]);
 
+      try {
+        const projectName = saved?.clientInfo?.projectName;
+        if (projectName) {
+          console.log("⚡ Auto-generating sprints for:", projectName);
+          const sprintRes = await apiPost(`/sprints/${projectName}/generate`);
+          if (sprintRes.ok) console.log("🎉 Sprints generated");
+          else console.error("⚠ Sprint generation failed", await sprintRes.text());
+        }
+      } catch (err) {
+        console.error("❌ Sprint generation error:", err);
+      }
+
       if (selectedTemplateIds.length > 0) {
         console.log("🧩 Creating stories for selected fields...");
         for (const fieldId of selectedTemplateIds) {

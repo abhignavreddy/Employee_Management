@@ -45,32 +45,49 @@ const ProjectsApi = {
   },
 };
 
-const TaskHistoryApi = {
-  create: async (payload) => {
-    const res = await apiPost('/task-history', payload);
-    if (!res.ok) throw new Error('Failed to create task');
-    return res.json();
-  },
-};
-
 export default function AssignTaskPage() {
-  const { user } = useAuth(); // expect user fields like name, employeeId or empId; adapt below if different
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
     title: '',
     description: '',
+    type: 'Story',
     project: '',
-    assignedTo: '',     // empId
-    priority: 'Medium', // client-only
+    assignedTo: '',
+    priority: 'Medium',
     dueDate: '',
-    department: '',     // client-only
+    department: '',
+    sprintNumber: '',
+    acceptanceCriteria: '',
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const [employees, setEmployees] = useState([]); // EmployeeResponse[]
+  const [employees, setEmployees] = useState([]);
   const [loadingEmps, setLoadingEmps] = useState(false);
 
-  const [projects, setProjects] = useState([]); // ProjectResponse[]
+  const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+
+  // ✅ Completely disable page scrolling on mount
+  useEffect(() => {
+    // Apply overflow hidden to html and body
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlHeight = document.documentElement.style.height;
+    const originalBodyHeight = document.body.style.height;
+    
+    document.documentElement.style.overflow = 'hidden';
+    document.documentElement.style.height = '100%';
+    document.body.style.overflow = 'hidden';
+    document.body.style.height = '100%';
+
+    return () => {
+      // Cleanup on unmount
+      document.documentElement.style.overflow = originalHtmlOverflow;
+      document.documentElement.style.height = originalHtmlHeight;
+      document.body.style.overflow = originalBodyOverflow;
+      document.body.style.height = originalBodyHeight;
+    };
+  }, []);
 
   // --- Load Employees ---
   const loadEmployees = async () => {
@@ -87,20 +104,19 @@ export default function AssignTaskPage() {
 
   // --- Load Projects ---
   const loadProjects = async () => {
-  setLoadingProjects(true);
-  try {
-    const data = await ProjectsApi.list();
-    setProjects(Array.isArray(data) ? data : data?.content || []);
-  } catch (e) {
-    toast({
-      title: 'Failed to load projects',
-      description: 'Check API or proxy settings.',
-    });
-  } finally {
-    setLoadingProjects(false);
-  }
-};
-
+    setLoadingProjects(true);
+    try {
+      const data = await ProjectsApi.list();
+      setProjects(Array.isArray(data) ? data : data?.content || []);
+    } catch (e) {
+      toast({
+        title: 'Failed to load projects',
+        description: 'Check API or proxy settings.',
+      });
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
 
   // --- Load once on mount ---
   useEffect(() => {
@@ -108,10 +124,6 @@ export default function AssignTaskPage() {
     loadProjects();
   }, []);
 
-
-
-  // Derive departments from employees if you need a filter; backend has no department field.
-  // Use empRole as a proxy department to retain your UI.
   const DEPARTMENTS = [
     'Development',
     'Designing',
@@ -126,6 +138,17 @@ export default function AssignTaskPage() {
     'Operations'
   ];
 
+  // Story/Work Item Types
+  const STORY_TYPES = [
+    { value: 'Story', label: 'Story' },
+    { value: 'Bug', label: 'Bug' },
+    { value: 'Task', label: 'Task' },
+    { value: 'Epic', label: 'Epic' },
+    { value: 'Feature', label: 'Feature' },
+    { value: 'Spike', label: 'Spike' },
+    { value: 'Sub-task', label: 'Sub-task' },
+    { value: 'Issue', label: 'Issue' },
+  ];
 
   const handleChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -154,39 +177,50 @@ export default function AssignTaskPage() {
       );
       const projectName = projectObj?.clientInfo?.projectName || formData.project;
 
+      // Format dueDate to LocalDateTime format (ISO 8601)
+      const formattedDueDate = formData.dueDate 
+        ? new Date(formData.dueDate).toISOString() 
+        : null;
+
       const payload = {
         taskName: formData.title,
         taskDescription: formData.description,
-        type: "Story",
+        type: formData.type,
         description: formData.description,
         assignedTo: formData.assignedTo || "unassigned",
         project: projectName,
-        dueDate: formData.dueDate,
+        dueDate: formattedDueDate,
         createdBy: user?.employeeId,
         department: formData.department,
         priority: formData.priority,
         status: "BACKLOG",
+        empId: formData.assignedTo,
+        sprintNumber: formData.sprintNumber ? parseInt(formData.sprintNumber) : null,
+        acceptanceCriteria: formData.acceptanceCriteria || null,
       };
 
-      // ✅ Axios returns response with .data property
       const response = await apiPost("/story-table", payload);
       const created = response.data;
 
       if (created?.id) setPriorityLocal(created.id, formData.priority);
 
       toast({
-        title: "Story Created Successfully",
-        description: `Story "${formData.title}" has been assigned to ${empName || formData.assignedTo}.`,
+        title: `${formData.type} Created Successfully`,
+        description: `${formData.type} "${formData.title}" has been assigned to ${empName || formData.assignedTo}.`,
       });
 
+      // Reset form
       setFormData({
         title: "",
         description: "",
+        type: "Story",
         project: "",
         assignedTo: "",
         priority: "Medium",
         dueDate: "",
         department: "",
+        sprintNumber: "",
+        acceptanceCriteria: "",
       });
     } catch (err) {
       console.error('Task creation error:', err);
@@ -204,43 +238,64 @@ export default function AssignTaskPage() {
     }
   };
 
-
-
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Create Story</h1>
-        <p className="text-gray-600 mt-1">Create and assign new tasks to employees</p>
+        <p className="text-gray-600 mt-1">Create and assign new work items to employees</p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">
             <ClipboardList className="w-5 h-5 mr-2 text-blue-600" />
-            New Task Assignment
+            New Work Item Assignment
           </CardTitle>
           <CardDescription>
-            Fill in the details below to assign a new task to an employee
+            Fill in the details below to assign a new work item to an employee
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="title">Task Title *</Label>
+              <Label htmlFor="title">Title *</Label>
               <Input
                 id="title"
-                placeholder="Enter task title"
+                placeholder="Enter work item title"
                 value={formData.title}
                 onChange={(e) => handleChange('title', e.target.value)}
                 required
               />
             </div>
 
+            {/* Type Dropdown - scrollable */}
+            <div className="space-y-2">
+              <Label htmlFor="type">Type *</Label>
+              <Select 
+                value={formData.type} 
+                onValueChange={(value) => handleChange('type', value)}
+              >
+                <SelectTrigger id="type">
+                  <SelectValue placeholder="Select work item type" />
+                </SelectTrigger>
+                <SelectContent 
+                  className="bg-white border border-gray-200 shadow-lg"
+                  style={{ maxHeight: '240px', overflowY: 'auto' }}
+                >
+                  {STORY_TYPES.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      {type.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="description">Description *</Label>
               <Textarea
                 id="description"
-                placeholder="Provide detailed task description"
+                placeholder="Provide detailed description"
                 value={formData.description}
                 onChange={(e) => handleChange('description', e.target.value)}
                 rows={4}
@@ -248,7 +303,19 @@ export default function AssignTaskPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="acceptanceCriteria">Acceptance Criteria</Label>
+              <Textarea
+                id="acceptanceCriteria"
+                placeholder="Define the acceptance criteria (optional)"
+                value={formData.acceptanceCriteria}
+                onChange={(e) => handleChange('acceptanceCriteria', e.target.value)}
+                rows={3}
+              />
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Assign To Dropdown - scrollable */}
               <div className="space-y-2">
                 <Label htmlFor="assignedTo">Assign To *</Label>
                 <Select
@@ -259,7 +326,10 @@ export default function AssignTaskPage() {
                   <SelectTrigger id="assignedTo">
                     <SelectValue placeholder={loadingEmps ? 'Loading...' : 'Select employee'} />
                   </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200 shadow-lg">
+                  <SelectContent 
+                    className="bg-white border border-gray-200 shadow-lg"
+                    style={{ maxHeight: '240px', overflowY: 'auto' }}
+                  >
                     {(employees || []).map((emp) => (
                       <SelectItem key={emp.id} value={emp.empId}>
                         {[emp.firstName, emp.lastName].filter(Boolean).join(' ')} — {emp.empId}
@@ -279,7 +349,6 @@ export default function AssignTaskPage() {
                   <SelectTrigger id="project">
                     <SelectValue placeholder={loadingProjects ? 'Loading...' : 'Select project'} />
                   </SelectTrigger>
-
                   <SelectContent className="bg-white border border-gray-200 shadow-lg">
                     {(projects || []).map((project, index) => {
                       const projectName =
@@ -289,7 +358,7 @@ export default function AssignTaskPage() {
 
                       return (
                         <SelectItem
-                          key={`${project._id || project.projectId}-${index}`} // ✅ Unique key
+                          key={`${project._id || project.projectId}-${index}`}
                           value={project.projectId}
                         >
                           {projectName}
@@ -301,6 +370,19 @@ export default function AssignTaskPage() {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="sprintNumber">Sprint Number</Label>
+                <Input
+                  id="sprintNumber"
+                  type="number"
+                  min="1"
+                  placeholder="Enter sprint number"
+                  value={formData.sprintNumber}
+                  onChange={(e) => handleChange('sprintNumber', e.target.value)}
+                />
+              </div>
+
+              {/* Department Dropdown - scrollable */}
+              <div className="space-y-2">
                 <Label htmlFor="department">Department *</Label>
                 <Select 
                   value={formData.department} 
@@ -309,7 +391,10 @@ export default function AssignTaskPage() {
                   <SelectTrigger id="department">
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200 shadow-lg">
+                  <SelectContent 
+                    className="bg-white border border-gray-200 shadow-lg"
+                    style={{ maxHeight: '240px', overflowY: 'auto' }}
+                  >
                     {DEPARTMENTS.map((dept) => (
                       <SelectItem key={dept} value={dept}>
                         {dept}
@@ -318,7 +403,6 @@ export default function AssignTaskPage() {
                   </SelectContent>
                 </Select>
               </div>
-
 
               <div className="space-y-2">
                 <Label htmlFor="priority">Priority *</Label>
@@ -359,17 +443,21 @@ export default function AssignTaskPage() {
                   setFormData({
                     title: '',
                     description: '',
+                    type: 'Story',
+                    project: '',
                     assignedTo: '',
                     priority: 'Medium',
                     dueDate: '',
                     department: '',
+                    sprintNumber: '',
+                    acceptanceCriteria: '',
                   })
                 }
               >
                 Reset
               </Button>
               <Button type="submit" className="text-white" disabled={submitting || loadingEmps}>
-                {submitting ? 'Assigning...' : 'Assign Task'}
+                {submitting ? 'Creating...' : `Create ${formData.type}`}
               </Button>
             </div>
           </form>
