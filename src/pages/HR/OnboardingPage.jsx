@@ -48,9 +48,9 @@ const EmployeeApi = {
   list: (page = 0, size = 20) =>
     api.get(`/employees?page=${page}&size=${size}`).then((r) => r.data),
 
-  delete: (id, deletedBy = "HR") =>
+  deactivate: (id, deactivatedBy = "HR") =>
     api
-      .delete(`/employees/${id}?deletedBy=${encodeURIComponent(deletedBy)}`)
+      .put(`/employees/${id}/deactivate?deactivatedBy=${encodeURIComponent(deactivatedBy)}`)
       .then((r) => r.data),
 };
 
@@ -122,7 +122,8 @@ export default function OnboardingPage() {
   const loadList = async (p = page) => {
     setListLoading(true);
     try {
-      const data = await EmployeeApi.list(p, size);
+      // Fetch only active employees
+      const data = await api.get(`/employees/active?page=${p}&size=${size}`).then(r => r.data);
       const list = Array.isArray(data) ? data : data?.content || [];
       setEmployees(list);
       setTotalPages(data?.totalPages || 1);
@@ -136,6 +137,7 @@ export default function OnboardingPage() {
       setListLoading(false);
     }
   };
+
 
   useEffect(() => {
     loadList(0);
@@ -952,34 +954,32 @@ export default function OnboardingPage() {
 
                   setOffbSubmitting(true);
                   try {
-                    // Build FormData for file upload
-                    const formData = new FormData();
-                    formData.append("lastDay", offbInfo.lastDay);
-                    formData.append("reason", offbInfo.reason);
+                    // Soft delete - just change status to INACTIVE
+                    await EmployeeApi.deactivate(offbTarget.id, "HR");
 
-                    if (offbInfo.files) {
-                      [...offbInfo.files].forEach((file) => formData.append("files", file));
-                    }
-
-                    // Use your backend API (adjust URL if needed)
-                    await apiClient.post(
-                      `/employees/${offbTarget.id}/offboard?deletedBy=HR`,
-                      formData,
-                      {
-                        headers: { "Content-Type": "multipart/form-data" },
-                      }
-                    );
+                    // Optional: If you want to store offboarding info, make a separate API call
+                    // const formData = new FormData();
+                    // formData.append("lastDay", offbInfo.lastDay);
+                    // formData.append("reason", offbInfo.reason);
+                    // if (offbInfo.files) {
+                    //   [...offbInfo.files].forEach((file) => formData.append("files", file));
+                    // }
+                    // await apiClient.post(`/employees/${offbTarget.id}/offboard-info`, formData);
 
                     toast({
-                      title: "Offboarded Successfully",
-                      description: `${offbTarget.empId} has been offboarded.`,
+                      title: "Employee Offboarded",
+                      description: `${offbTarget.empId} status changed to INACTIVE.`,
                     });
 
                     setOffbTarget(null);
                     setOffbInfo({ lastDay: "", reason: "", files: null });
+                    setEmpIdQuery("");
                     await loadList(page);
                   } catch (err) {
-                    toast({ title: "Error", description: "Failed to offboard employee" });
+                    toast({ 
+                      title: "Error", 
+                      description: err?.response?.data?.message || "Failed to offboard employee" 
+                    });
                   } finally {
                     setOffbSubmitting(false);
                   }
@@ -987,6 +987,7 @@ export default function OnboardingPage() {
               >
                 {offbSubmitting ? "Processing..." : "Offboard Employee"}
               </Button>
+
             </CardContent>
           </Card>
         </TabsContent>
