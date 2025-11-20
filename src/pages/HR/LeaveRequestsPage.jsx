@@ -20,17 +20,21 @@ const LeaveRequestsPage = () => {
           params: { role }
         });
 
-        console.log("Fetched Leaves:", res.data);
+        console.log("📋 [LeaveRequests] Fetched Leaves:", res.data);
 
-        setRequests(
-          res.data.map(r => ({
-            ...r,
-            empRole: r.emp_role?.toUpperCase() || "",
-            status: r.status?.toUpperCase() || "",
-            id: r._id || r.id,
-            empId: r.empId || r.emp_id || r.employeeId || null,
-          }))
-        );
+        const normalizedRequests = res.data.map(r => ({
+          ...r,
+          empRole: r.emp_role?.toUpperCase() || "",
+          status: r.status?.toUpperCase() || "",
+          id: r._id || r.id,
+          empId: r.empId || r.emp_id || r.employeeId || null,
+          empName: r.empName || r.emp_name || "Unknown",
+          fromDate: r.fromDate || r.from_date,
+          toDate: r.toDate || r.to_date,
+        }));
+        
+        console.log("✅ [LeaveRequests] Normalized:", normalizedRequests);
+        setRequests(normalizedRequests);
       } catch (err) {
         console.error(err);
       }
@@ -69,6 +73,9 @@ const LeaveRequestsPage = () => {
   const handleApprove = async (id) => {
     if (!id) return toast.error("Invalid request ID");
     try {
+      const request = requests.find(r => r.id === id);
+      console.log("✅ Approving leave:", request);
+      
       await apiClient.patch(`/leave-approvel/${id}/status`, {
         status: "APPROVED",
       });
@@ -77,9 +84,9 @@ const LeaveRequestsPage = () => {
         prev.map(r => (r.id === id ? { ...r, status: "APPROVED" } : r))
       );
 
-      toast.success("Leave approved!");
+      toast.success(`Leave approved for ${request?.empName || 'employee'}! Attendance will reflect this change.`);
     } catch (err) {
-      console.error(err);
+      console.error("❌ Approval failed:", err);
       toast.error("Approval failed");
     }
   };
@@ -87,6 +94,9 @@ const LeaveRequestsPage = () => {
   const handleReject = async (id) => {
     if (!id) return toast.error("Invalid request ID");
     try {
+      const request = requests.find(r => r.id === id);
+      console.log("❌ Rejecting leave:", request);
+      
       await apiClient.patch(`/leave-approvel/${id}/status`, {
         status: "REJECTED",
       });
@@ -95,9 +105,12 @@ const LeaveRequestsPage = () => {
         prev.map(r => (r.id === id ? { ...r, status: "REJECTED" } : r))
       );
 
-      toast.success("Leave rejected!");
+      // After rejection, remove any placeholder attendance rows created for approved leave
+      await purgeLeaveAttendanceRows(request, "REJECTED");
+
+      toast.success(`Leave rejected for ${request?.empName || 'employee'}! They can now check in/out normally.`);
     } catch (err) {
-      console.error(err);
+      console.error("❌ Rejection failed:", err);
       toast.error("Rejection failed");
     }
   };
@@ -112,12 +125,26 @@ const LeaveRequestsPage = () => {
       if (!request.id) return toast.error("Invalid request id");
       setIsSaving(true);
       try {
+        console.log(`🔄 Updating leave status to ${editStatus} for:`, request);
+        const previousStatus = request.status;
         await apiClient.patch(`/leave-approvel/${request.id}/status`, { status: editStatus });
         setRequests(prev => prev.map(r => (r.id === request.id ? { ...r, status: editStatus } : r)));
-        toast.success("Status updated");
+        
+        if (editStatus === "APPROVED") {
+          toast.success(`Leave approved for ${request.empName}! Attendance will reflect this change.`);
+        } else if (editStatus === "REJECTED") {
+          toast.success(`Leave rejected for ${request.empName}! They can now check in/out normally.`);
+          // If transitioning from APPROVED to REJECTED, purge placeholder attendance rows
+          if (previousStatus === "APPROVED") {
+            await purgeLeaveAttendanceRows(request, editStatus);
+          }
+        } else {
+          toast.success("Status updated to PENDING");
+        }
+        
         setIsEditing(false);
       } catch (err) {
-        console.error(err);
+        console.error("❌ Status update failed:", err);
         toast.error("Update failed");
       } finally {
         setIsSaving(false);
@@ -213,6 +240,48 @@ const LeaveRequestsPage = () => {
         </CardContent>
       </Card>
     );
+  };
+
+  // Helper to delete attendance rows created for an approved leave when it gets rejected
+  const purgeLeaveAttendanceRows = async (leaveRequest, newStatus) => {
+    try {
+      if (!leaveRequest || !leaveRequest.empId) return;
+      if (newStatus !== "REJECTED") return; // Only act on rejection
+      const empId = leaveRequest.empId;
+      const from = new Date(leaveRequest.fromDate || leaveRequest.from_date);
+      const to = new Date(leaveRequest.toDate || leaveRequest.to_date);
+      if (isNaN(from) || isNaN(to)) return;
+      const fromStr = from.toISOString().split("T")[0];
+      const toStr = to.toISOString().split("T")[0];
+      console.log("🧹 Purging attendance rows for rejected leave", { empId, fromStr, toStr });
+      const attRes = await apiClient.get(`/attendance/employee/${empId}`);
+      const allRecords = attRes.data || [];
+      const toDelete = allRecords.filter(rec => {
+        if (!rec.date) return false;
+        const dateStr = new Date(rec.date).toISOString().split("T")[0];
+        const inRange = dateStr >= fromStr && dateStr <= toStr;
+        const statusNorm = (rec.status || "").replace(/\s+/g, "").toUpperCase();
+        const isLeaveLike = ["LEAVE", "ONLEAVE"].includes(statusNorm);
+        const noWorkLogged = !rec.checkIn && !rec.checkOut; // Only delete placeholder rows
+        return inRange && isLeaveLike && noWorkLogged;
+      });
+      if (!toDelete.length) {
+        console.log("ℹ️ No placeholder attendance rows to delete for this rejected leave.");
+        return;
+      }
+      await Promise.all(
+        toDelete.map(rec => {
+          const id = rec.id || rec._id;
+          if (!id) return Promise.resolve();
+          console.log("🗑️ Deleting attendance record", id);
+          return apiClient.delete(`/attendance/${id}`);
+        })
+      );
+      toast.success(`Removed ${toDelete.length} placeholder attendance record(s) after rejection.`);
+    } catch (err) {
+      console.error("❌ Failed to purge leave attendance rows", err);
+      toast.error("Failed to remove leave attendance rows");
+    }
   };
 
   return (

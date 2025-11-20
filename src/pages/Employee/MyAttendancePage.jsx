@@ -22,6 +22,7 @@ const api = axios.create({ baseURL: "/", headers: { "Content-Type": "application
 const AttendanceAPI = {
   getByEmpId: (empId) => api.get(`/api/attendance/employee/${empId}`).then((r) => r.data),
   checkIn: (payload) => api.post("/api/attendance/checkin", payload).then((r) => r.data),
+  deleteRecord: (id) => api.delete(`/api/attendance/${id}`).then((r) => r.data),
   checkOut: (id) => api.patch(`/api/attendance/checkout/${id}`, { checkOut: new Date().toISOString(), status: "Present" }).then((r) => r.data),
 };
 
@@ -65,6 +66,7 @@ export default function MyAttendancePage() {
       try {
         const leaveRes = await api.get(`/api/leave-approvel/employee/${user.empId}`);
         leaves = leaveRes.data || [];
+        console.log("📋 Fetched Leave Requests:", leaves);
       } catch (err) {
         console.error("Failed to load leave data:", err);
         leaves = [];
@@ -72,33 +74,83 @@ export default function MyAttendancePage() {
 
       const today = new Date().toISOString().split("T")[0];
 
-      // Check if employee is on leave today (boolean)
-      const onLeaveToday = leaves.some((l) =>
-        l.status?.toUpperCase() === "APPROVED" &&
-        today >= l.fromDate &&
-        today <= l.toDate
-      );
+      // Check if employee is on leave today (boolean) - ONLY for APPROVED leaves
+      const onLeaveToday = leaves.some((l) => {
+        const status = l.status?.toUpperCase() || "";
+        console.log("🔍 Checking leave:", {
+          fromDate: l.fromDate,
+          toDate: l.toDate,
+          status: status,
+          originalStatus: l.status,
+          isApproved: status === "APPROVED"
+        });
+        
+        if (status !== "APPROVED") {
+          console.log("❌ Leave not approved, skipping:", l);
+          return false;
+        }
+        
+        const fromDate = new Date(l.fromDate).toISOString().split("T")[0];
+        const toDate = new Date(l.toDate).toISOString().split("T")[0];
+        
+        const isInRange = today >= fromDate && today <= toDate;
+        console.log("📅 Date check:", { today, fromDate, toDate, isInRange });
+        
+        return isInRange;
+      });
       setIsOnLeaveToday(onLeaveToday);
+      
+      console.log("✅ Final Leave Status - Today:", today, "On Leave:", onLeaveToday);
 
       // Check if today is a public holiday
       const holiday = getHolidayByDate(today);
       setTodayHoliday(holiday);
 
-      // Map attendance records to mark Leave for table display status
+      // Map attendance records: reflect approved leave, otherwise revert previous leave markers intelligently
+      const todayDateObj = new Date(today);
       const updatedRecords = data.map(r => {
-        const isOnLeave = leaves.some(l =>
-          l.status?.toUpperCase() === "APPROVED" &&
-          r.date >= l.fromDate &&
-          r.date <= l.toDate
-        );
-        return { ...r, status: isOnLeave ? "Leave" : r.status };
+        if (!r.date) return r;
+        const recordDateObj = new Date(r.date);
+        const recordDateStr = recordDateObj.toISOString().split("T")[0];
+
+        // Determine if this date is covered by an APPROVED leave
+        const hasApprovedLeave = leaves.some(l => {
+          const status = l.status?.toUpperCase();
+          if (status !== "APPROVED") return false;
+          const fromStr = new Date(l.fromDate).toISOString().split("T")[0];
+          const toStr = new Date(l.toDate).toISOString().split("T")[0];
+          return recordDateStr >= fromStr && recordDateStr <= toStr;
+        });
+
+        let finalStatus = r.status;
+        if (hasApprovedLeave) {
+          finalStatus = "Leave";
+        } else if (finalStatus === "Leave" || finalStatus === "OnLeave") {
+          // Previously marked as leave but leave was revoked/rejected.
+          if (r.checkIn) {
+            finalStatus = "Present"; // user actually checked in later
+          } else if (recordDateObj < todayDateObj) {
+            // Past day with no check in -> Absent
+            finalStatus = "Absent";
+          } else {
+            // Today or future: show blank placeholder instead of Absent
+            finalStatus = "—"; // will render as hyphen
+          }
+        }
+        return { ...r, status: finalStatus };
       });
+
+      console.log("📊 Updated Records with Leave Status (employee page):", updatedRecords);
 
       setRecords(updatedRecords);
 
       // Optional: set today's record for check-in/out buttons logic
       const todayRec = updatedRecords.find(r => r.date === today);
       setTodayRecord(todayRec || null);
+      
+      console.log("📌 Today's Record:", todayRec);
+      console.log("📌 Can Check In:", !isOnLeaveToday && !todayHoliday && (!todayRec || (!todayRec.checkIn && !todayRec.checkOut)));
+      console.log("📌 Can Check Out:", !isOnLeaveToday && !todayHoliday && todayRec && todayRec.checkIn && !todayRec.checkOut);
 
     } catch (err) {
       console.error(err);
@@ -107,6 +159,12 @@ export default function MyAttendancePage() {
 
   useEffect(() => {
     load();
+    
+    // Refresh when window gains focus (user comes back to tab)
+    const handleFocus = () => load();
+    window.addEventListener('focus', handleFocus);
+    
+    return () => window.removeEventListener('focus', handleFocus);
   }, [user]);
 
   const onLeaveRequestSubmitted = () => {
@@ -118,7 +176,23 @@ export default function MyAttendancePage() {
   const canCheckOut = !isOnLeaveToday && !todayHoliday && todayRecord && todayRecord.checkIn && !todayRecord.checkOut;
 
   const handleCheckIn = async () => {
+    if (isOnLeaveToday) return alert("Check-in disabled: You are on approved leave today.");
     if (todayHoliday) return alert(`Check-in disabled: Public holiday — ${todayHoliday.name}`);
+    
+    // Check if already checked in today
+    if (todayRecord && todayRecord.checkIn) {
+      return alert("You have already checked in today!");
+    }
+    
+    console.log("🔵 Attempting check-in...", { 
+      empId: user.empId, 
+      empName: user.name, 
+      workMode,
+      todayRecord,
+      isOnLeaveToday,
+      todayHoliday 
+    });
+    
     try {
       const now = new Date();
       const payload = {
@@ -130,23 +204,57 @@ export default function MyAttendancePage() {
         status: "Present",
         empRole: user.role,
       };
-      await AttendanceAPI.checkIn(payload);
+      
+      console.log("📤 Sending check-in payload:", payload);
+      
+      let response;
+      // If today's record exists with status "Absent" (due to rejected leave), DELETE it first
+      if (todayRecord && todayRecord.id && !todayRecord.checkIn) {
+        console.log("🗑️ Deleting old Absent record:", todayRecord.id);
+        try {
+          await AttendanceAPI.deleteRecord(todayRecord.id);
+          console.log("✅ Old record deleted");
+        } catch (delErr) {
+          console.warn("⚠️ Could not delete old record, will try to create new one anyway");
+        }
+      }
+      
+      // Now CREATE a new record
+      console.log("➕ Creating new check-in record");
+      response = await AttendanceAPI.checkIn(payload);
+      
+      console.log("✅ Check-in response:", response);
+      
       alert("Checked in successfully!");
       load();
     } catch (err) {
-      alert(err.response?.data?.message || "Check-in failed");
+      console.error("❌ Check-in error:", err);
+      console.error("❌ Error response:", err.response?.data);
+      console.error("❌ Full error object:", JSON.stringify(err.response, null, 2));
+      
+      const errorMsg = err.response?.data?.message || err.response?.data?.error || err.message || "Check-in failed";
+      alert(`Check-in failed: ${errorMsg}`);
     }
   };
 
   const handleCheckOut = async () => {
+    if (isOnLeaveToday) return alert("Check-out disabled: You are on approved leave today.");
     if (todayHoliday) return alert(`Check-out disabled: Public holiday — ${todayHoliday.name}`);
     if (!todayRecord) return alert("No check-in found for today.");
+    
+    console.log("🔴 Attempting check-out...", { recordId: todayRecord.id, empId: user.empId });
+    
     try {
-      await AttendanceAPI.checkOut(todayRecord.id);
+      console.log("📤 Sending check-out request for record ID:", todayRecord.id);
+      const response = await AttendanceAPI.checkOut(todayRecord.id);
+      console.log("✅ Check-out response:", response);
+      
       alert("Checked out successfully!");
       load();
     } catch (err) {
-      alert(err.response?.data?.message || "Check-out failed");
+      console.error("❌ Check-out error:", err);
+      console.error("❌ Error response:", err.response?.data);
+      alert(err.response?.data?.message || err.message || "Check-out failed");
     }
   };
 
@@ -287,7 +395,13 @@ export default function MyAttendancePage() {
                           })()
                         : "—"}
                         </TableCell>
-                    <TableCell><Badge variant="outline" className={getStatusColor(r.status)}>{r.status}</Badge></TableCell>
+                    <TableCell>
+                      {r.status === "—" || !r.status ? (
+                        <span className="text-gray-400">—</span>
+                      ) : (
+                        <Badge variant="outline" className={getStatusColor(r.status)}>{r.status}</Badge>
+                      )}
+                    </TableCell>
                     <TableCell>{r.workMode || "—"}</TableCell>
                   </TableRow>
                 )
