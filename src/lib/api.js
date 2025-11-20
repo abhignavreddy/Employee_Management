@@ -123,6 +123,20 @@ export const apiPostMultipart = async (endpoint, formData) => {
   });
 };
 
+export const apiPatch = async (endpoint, data) => {
+  const token = localStorage.getItem("authToken");
+  
+  return fetch(`${API_BASE_URL}${endpoint}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify(data),
+  });
+};
+
+
 export default {
   getApiUrl,
   apiFetch,
@@ -131,4 +145,5 @@ export default {
   apiPut,
   apiDelete,
   apiPostMultipart, // ✅ Export new helper
+  apiPatch,
 };

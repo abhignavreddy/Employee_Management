@@ -28,6 +28,7 @@ const menuConfig = {
   Manager: [
     { path: "/projects", label: "Projects", icon: Users },
     { path: "/employees", label: "Employees", icon: Users },
+    { path: "/manager-board", label: "Manager Board", icon: Users },
 
     { path: "/attendance", label: "Attendance", icon: Calendar },
     { path: "/leave-requests", label: "Leave Requests", icon: FileText },

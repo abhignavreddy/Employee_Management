@@ -23,6 +23,7 @@ import ProjectFieldsPage from "./pages/Manager/ProjectFieldsPage";
 import ProjectSpacesPage from "./pages/Spaces/ProjectSpacesPage";
 import SpacesPage from "./pages/SpacesPage";
 
+
 // Employee Pages
 import MyTasksPage from "./pages/Employee/MyTasksPage";
 import EmployeeBoardPage from "./pages/Employee/EmployeeBoard";
@@ -44,6 +45,7 @@ import SalariesOverviewPage from "./pages/CEO/SalariesOverviewPage";
 import TopPerformersPage from "./pages/CEO/TopPerformersPage";
 import TaskAnalyticsPage from "./pages/CEO/TaskAnalyticsPage";
 import ProfilePage from "./pages/Employee/ProfilePage.jsx";
+import ManagerBoard from "./pages/Manager/ManagerBoard.jsx";
 
 
 // Placeholder Page
@@ -116,6 +118,16 @@ function App() {
                 <ProtectedRoute allowedRoles={["Manager", "CEO"]}>
                   <AppShell>
                     <EmployeesPage />
+                  </AppShell>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/manager-board"
+              element={
+                <ProtectedRoute allowedRoles={["Manager", "CEO"]}>
+                  <AppShell>
+                    <ManagerBoard />
                   </AppShell>
                 </ProtectedRoute>
               }

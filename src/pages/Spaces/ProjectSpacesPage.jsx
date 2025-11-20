@@ -1,30 +1,15 @@
 // ProjectSpacesPage.jsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { apiGet, apiPut } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
-import AssignTaskPage from "../Manager/AssignTaskPage"; // adjust path if necessary
+import AssignTaskPage from "../Manager/AssignTaskPage"; // adjust path if needed
 
-// Prevent StrictMode flicker for Droppable
-const StrictModeDroppable = ({ children, ...props }) => {
-  const [enabled, setEnabled] = React.useState(false);
-  React.useEffect(() => {
-    const animation = requestAnimationFrame(() => setEnabled(true));
-    return () => {
-      cancelAnimationFrame(animation);
-      setEnabled(false);
-    };
-  }, []);
-  if (!enabled) return null;
-  return <Droppable {...props}>{children}</Droppable>;
-};
-
-// Helpers
+// ---------- Helpers ----------
 const fmtDateShort = (iso) => {
   try {
     const d = new Date(iso);
-    // Example result: "Jan 06"
     return d.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
   } catch {
     return "";
@@ -32,7 +17,6 @@ const fmtDateShort = (iso) => {
 };
 
 const formatSprintName = (s) => {
-  // s: { sprintNumber, startDate, endDate }
   if (!s) return "Sprint";
   const sn = s.sprintNumber != null ? `Sprint ${s.sprintNumber}` : s.name || "Sprint";
   if (s.startDate && s.endDate) {
@@ -41,20 +25,17 @@ const formatSprintName = (s) => {
   return sn;
 };
 
-// Build year-week based sprints (front-end only fallback, monday..sunday)
+// Build 52 weekly sprints for a year (Monday..Sunday) — front-end fallback only
 const generateLocalSprintsForYear = (year) => {
-  // find first Monday of the year
-  let start = new Date(Date.UTC(year, 0, 1)); // Jan 1 UTC
-  // shift to Monday
-  const dow = start.getUTCDay(); // 0 Sun ... 6 Sat; we want Monday (1)
-  const shift = ((1 - dow) + 7) % 7; // days to add to reach Monday
+  let start = new Date(Date.UTC(year, 0, 1));
+  // find first Monday
+  const day = start.getUTCDay(); // 0=Sun
+  const shift = ((1 - day) + 7) % 7;
   start = new Date(start.getTime() + shift * 24 * 3600 * 1000);
-
   const sprints = [];
   for (let i = 1; i <= 52; i++) {
     const s = new Date(start.getTime() + (i - 1) * 7 * 24 * 3600 * 1000);
     const e = new Date(s.getTime() + 6 * 24 * 3600 * 1000);
-    // save ISO strings
     sprints.push({
       id: `LOCAL-${year}-${i}`,
       sprintNumber: i,
@@ -62,115 +43,48 @@ const generateLocalSprintsForYear = (year) => {
       startDate: s.toISOString(),
       endDate: e.toISOString(),
       active: false,
+      label: `Sprint ${i} (${s.toLocaleDateString(undefined, { month: "short", day: "2-digit" })} – ${e.toLocaleDateString(undefined, { month: "short", day: "2-digit" })})`,
     });
   }
   return sprints;
 };
 
-// Get a sliding window of up to `maxVisible` sprints centered around currentSprintNumber
-const visibleSprintWindow = (sprints, currentSprintNumber, maxVisible = 5) => {
+// Get sliding window up to maxVisible sprints, centered on currentSprintNumber
+const visibleSprintWindow = (sprints = [], currentSprintNumber = null, maxVisible = 5) => {
   if (!sprints || sprints.length === 0) return [];
-  // sort by sprintNumber ascending
-  const sorted = [...sprints].sort((a, b) => (a.sprintNumber || 0) - (b.sprintNumber || 0));
+  const sorted = [...sprints].sort((a, b) => (Number(a.sprintNumber || 0) - Number(b.sprintNumber || 0)));
   const len = sorted.length;
   let centerIndex = 0;
   if (currentSprintNumber != null) {
     const idx = sorted.findIndex((x) => Number(x.sprintNumber) === Number(currentSprintNumber));
     centerIndex = idx >= 0 ? idx : 0;
   }
-  // compute window start/end
   const half = Math.floor(maxVisible / 2);
   let start = Math.max(0, centerIndex - half);
   let end = Math.min(len - 1, start + maxVisible - 1);
-  // adjust start if we truncated at end
   start = Math.max(0, end - (maxVisible - 1));
   return sorted.slice(start, end + 1);
 };
 
-// --- Inline Sprint Dropdown (same as global sprint selector) ---
-function InlineSprintDropdown({
-  projectSprints = [],
-  value,
-  onChange,
-  showSpillover = false,
-}) {
-  const [open, setOpen] = React.useState(false);
+// Robust date-in-range detection (handles various ISO formats/timezones)
+const detectCurrentSprintByDate = (sprints = []) => {
+  if (!sprints || sprints.length === 0) return null;
+  const now = new Date();
+  for (const s of sprints) {
+    if (!s.startDate || !s.endDate) continue;
+    try {
+      const st = new Date(s.startDate);
+      const en = new Date(s.endDate);
+      // allow small tolerance (in case times are at midnight)
+      if (now >= st && now <= en) return s.sprintNumber;
+    } catch {
+      // skip parse errors
+    }
+  }
+  return null;
+};
 
-  return (
-    <div className="relative w-full">
-      {/* Trigger */}
-      <button
-        className="w-full border border-gray-300 bg-white rounded-md px-2 py-1 text-sm flex justify-between items-center"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span className="truncate">
-          {projectSprints.find((sp) => sp.sprintNumber === value)?.label ||
-            "Select Sprint"}
-        </span>
-        <span className="text-gray-500">▼</span>
-      </button>
-
-      {/* Dropdown */}
-      {open && (
-        <div className="absolute mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-[180px] overflow-y-auto">
-          {/* Backlog */}
-          <div
-            className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 ${
-              value === null ? "bg-blue-50" : ""
-            }`}
-            onClick={() => {
-              onChange(null);
-              setOpen(false);
-            }}
-          >
-            Backlog
-          </div>
-
-          {/* Sprints */}
-          {projectSprints.map((sp) => (
-            <div
-              key={sp.id}
-              className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 flex justify-between items-center ${
-                sp.sprintNumber === value ? "bg-blue-50" : ""
-              }`}
-              onClick={() => {
-                onChange(sp.sprintNumber);
-                setOpen(false);
-              }}
-            >
-              <span className={`${sp.active ? "font-semibold text-blue-700" : ""}`}>
-                {sp.label}
-              </span>
-
-              {sp.active && (
-                <span className="text-xs text-green-700 font-semibold ml-2">
-                  Current
-                </span>
-              )}
-            </div>
-          ))}
-
-          {/* Spillover */}
-          {showSpillover && (
-            <div
-              className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 ${
-                value === 999 ? "bg-blue-50" : ""
-              }`}
-              onClick={() => {
-                onChange(999);
-                setOpen(false);
-              }}
-            >
-              Spillover
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
+// ---------- Component ----------
 export default function ProjectSpacesPage() {
   const { projectId } = useParams();
   const { user } = useAuth();
@@ -180,26 +94,26 @@ export default function ProjectSpacesPage() {
   const [stories, setStories] = useState([]);
   const [employees, setEmployees] = useState([]);
 
-  // UI
+  // UI state
   const [activeTab, setActiveTab] = useState("sprint");
   const [loading, setLoading] = useState(true);
 
-  // sprints
-  const [projectSprints, setProjectSprints] = useState([]); // {id, sprintNumber, startDate, endDate, active}
-  const [selectedSprint, setSelectedSprint] = useState(null); // numeric sprintNumber
-  const [selectedEmployee, setSelectedEmployee] = useState("ALL");
+  // Sprints
+  const [projectSprints, setProjectSprints] = useState([]); // array of {id,sprintNumber,startDate,endDate,active,label}
+  const [selectedSprint, setSelectedSprint] = useState(null);
 
-  // modals
+  // Filters / modals
+  const [selectedEmployee, setSelectedEmployee] = useState("ALL");
   const [selectedStory, setSelectedStory] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [showSprintMenu, setShowSprintMenu] = useState(false);
 
-
   const isManager = user?.role === "Manager" || user?.role === "CEO";
 
-  // Loaders
-  const loadProject = async () => {
+  // ---------- Loaders ----------
+  const loadProject = useCallback(async () => {
+    if (!projectId) return;
     try {
       const res = await apiGet(`/client-onboard/${projectId}`);
       if (!res.ok) throw new Error("Failed to load project");
@@ -208,9 +122,9 @@ export default function ProjectSpacesPage() {
     } catch (e) {
       console.error("loadProject:", e);
     }
-  };
+  }, [projectId]);
 
-  const loadEmployees = async () => {
+  const loadEmployees = useCallback(async () => {
     try {
       const res = await apiGet("/employees");
       if (!res.ok) throw new Error("Failed to load employees");
@@ -220,9 +134,9 @@ export default function ProjectSpacesPage() {
     } catch (e) {
       console.error("loadEmployees:", e);
     }
-  };
+  }, []);
 
-  const normalizeStories = (raw) =>
+  const normalizeStories = useCallback((raw) =>
     (raw || []).map((r) => ({
       ...r,
       id: r.id,
@@ -242,13 +156,14 @@ export default function ProjectSpacesPage() {
       completedAt: r.completedAt || r.completedAtDateTime || null,
       cancelledAt: r.cancelledAt || r.cancelledAtDateTime || null,
       dueDate: r.dueDate || null,
-    }));
+    }))
+  , []);
 
-  const loadStories = async (projectName) => {
+  const loadStories = useCallback(async (projectName) => {
     if (!projectName) return;
     try {
       setLoading(true);
-      const res = await apiGet(`/story-table/project/${projectName}`);
+      const res = await apiGet(`/story-table/project/${encodeURIComponent(projectName)}`);
       if (!res.ok) throw new Error("Failed to load stories");
       const data = await res.json();
       const raw = Array.isArray(data) ? data : Array.isArray(data.content) ? data.content : [];
@@ -259,94 +174,93 @@ export default function ProjectSpacesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [normalizeStories]);
 
-  // Load sprints for project (from backend). If none, fallback to local generator.
-  const loadSprints = async (projectName) => {
+  // Fetch sprints from backend; if none available, fallback to /current or local generator
+  const loadSprints = useCallback(async (projectName) => {
     if (!projectName) return;
     try {
-      // Try backend list
+      // 1) Try GET /api/sprints/{project} -> array
       const res = await apiGet(`/sprints/${encodeURIComponent(projectName)}`);
       if (res.ok) {
         const data = await res.json();
-        // Expect array of SprintResponse: { id, project, sprintNumber, year, startDate, endDate, active }
         if (Array.isArray(data) && data.length > 0) {
-          const mapped = data.map((s) => ({
-            id: s.id || s._id || `${s.project}-${s.sprintNumber}`,
-            sprintNumber: s.sprintNumber,
-            year: s.year,
-            startDate: s.startDate,
-            endDate: s.endDate,
-            active: !!s.active,
-            name: s.name || `Sprint ${s.sprintNumber}`,
-          }));
-          setProjectSprints(mapped);
-          // try to detect current sprint via date
-          const detected = detectCurrentSprint(mapped);
-          setSelectedSprint(detected || mapped.find((x) => x.active)?.sprintNumber || mapped[0]?.sprintNumber || 1);
-          return;
-        }
-      } else {
-        // Non-ok: still try to get /current for a hint
-        console.warn("sprints GET returned non-ok:", res.status);
-      }
-    } catch (e) {
-      console.warn("Failed to fetch sprints for project:", e);
-    }
-
-    // fallback: try GET /sprints/{project}/current to at least get active sprint number
-    try {
-      const curRes = await apiGet(`/sprints/${encodeURIComponent(projectName)}/current`);
-      if (curRes.ok) {
-        const cs = await curRes.json();
-        if (cs && cs.sprintNumber) {
-          // generate local sprints for that year and mark active
-          const year = cs.year || new Date().getFullYear();
-          const local = generateLocalSprintsForYear(year);
-          // mark active
-          local.forEach((l) => {
-            if (l.sprintNumber === cs.sprintNumber) l.active = true;
+          const mapped = data.map((s) => {
+            const start = s.startDate || s.start || null;
+            const end = s.endDate || s.end || null;
+            const label = start && end
+              ? `${s.active ? "Current Sprint" : `Sprint ${s.sprintNumber}`} (${fmtDateShort(start)} – ${fmtDateShort(end)})`
+              : s.active ? "Current Sprint" : `Sprint ${s.sprintNumber}`;
+            return {
+              id: s.id || s._id || `${s.project}-${s.sprintNumber}`,
+              sprintNumber: s.sprintNumber,
+              startDate: start,
+              endDate: end,
+              year: s.year,
+              active: !!s.active,
+              label,
+            };
           });
-          setProjectSprints(local);
-          setSelectedSprint(cs.sprintNumber);
+          setProjectSprints(mapped);
+
+          // Prefer date-based detection; fallback to backend active flag; final fallback to first sprint number
+          const detectedByDate = detectCurrentSprintByDate(mapped);
+          const activeFlag = mapped.find((m) => m.active)?.sprintNumber;
+          setSelectedSprint(detectedByDate || activeFlag || mapped[0]?.sprintNumber || 1);
           return;
         }
       }
-    } catch (e) {
-      // ignore
+
+      // 2) If /sprints returned empty/non-ok, try GET /sprints/{project}/current for a hint
+      try {
+        const curRes = await apiGet(`/sprints/${encodeURIComponent(projectName)}/current`);
+        if (curRes.ok) {
+          const cs = await curRes.json();
+          if (cs && cs.sprintNumber) {
+            // generate 52 local sprints for cs.year and mark the detected sprint active
+            const year = cs.year || new Date().getFullYear();
+            const local = generateLocalSprintsForYear(year);
+            local.forEach((l) => {
+              if (l.sprintNumber === cs.sprintNumber) l.active = true;
+            });
+            setProjectSprints(local);
+            setSelectedSprint(cs.sprintNumber);
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+    } catch (err) {
+      // ignore fetch errors (we'll fallback)
     }
 
-    // Final fallback: create local 52-week set for current year (front-end only)
+    // Final fallback: generate local sprints for current year and select sprint that contains today
     const local = generateLocalSprintsForYear(new Date().getFullYear());
-    local[0].active = true;
-    setProjectSprints(local);
-    setSelectedSprint(local[0].sprintNumber);
-  };
+    const detected = detectCurrentSprintByDate(local);
+    if (detected) {
+      local.forEach((l) => {
+        l.active = l.sprintNumber === detected;
+      });
+      setProjectSprints(local);
+      setSelectedSprint(detected);
+    } else {
+      // default to sprint 1
+      local[0].active = true;
+      setProjectSprints(local);
+      setSelectedSprint(local[0].sprintNumber);
+    }
+  }, []);
 
-  // detect by today's date
-  const detectCurrentSprint = (sprints) => {
-    if (!sprints || sprints.length === 0) return null;
-    const now = new Date();
-    const found = sprints.find((s) => {
-      if (!s.startDate || !s.endDate) return false;
-      try {
-        const st = new Date(s.startDate);
-        const en = new Date(s.endDate);
-        return now >= st && now <= en;
-      } catch {
-        return false;
-      }
-    });
-    return found ? found.sprintNumber : null;
-  };
-
-  // Effects on mount / project change
+  // ---------- Effects ----------
   useEffect(() => {
     if (!projectId) return;
     loadProject();
     loadEmployees();
-  }, [projectId]);
+  }, [projectId, loadProject, loadEmployees]);
 
+  // When project object arrives, load sprints & stories
   useEffect(() => {
     if (!project) return;
 
@@ -357,66 +271,46 @@ export default function ProjectSpacesPage() {
 
     if (!projectName) return;
 
-    const loadBackendSprints = async () => {
-      try {
-        const res = await apiGet(`/sprints/${projectName}`);
-        if (!res.ok) {
-          console.warn("⚠ Failed to load sprints from backend");
-          setProjectSprints([]);
-          return;
-        }
+    // If project contains embedded sprints (client-side), use them; otherwise call backend
+    if (Array.isArray(project.sprints) && project.sprints.length) {
+      const mapped = project.sprints.map((s) => {
+        const start = s.startDate || s.start || null;
+        const end = s.endDate || s.end || null;
+        const label = start && end
+          ? `${s.active ? "Current Sprint" : `Sprint ${s.sprintNumber}`} (${fmtDateShort(start)} – ${fmtDateShort(end)})`
+          : s.active ? "Current Sprint" : `Sprint ${s.sprintNumber}`;
+        return {
+          id: s.id || s._id || `${s.project}-${s.sprintNumber}`,
+          sprintNumber: s.sprintNumber,
+          startDate: start,
+          endDate: end,
+          year: s.year,
+          active: !!s.active,
+          label,
+        };
+      });
 
-        const backendSprints = await res.json();
+      setProjectSprints(mapped);
+      const detected = detectCurrentSprintByDate(mapped);
+      const activeFlag = mapped.find((m) => m.active)?.sprintNumber;
+      setSelectedSprint(detected || activeFlag || mapped[0]?.sprintNumber || 1);
 
-        const formatted = backendSprints.map((s) => {
-          const start = s.startDate ? new Date(s.startDate) : null;
-          const end = s.endDate ? new Date(s.endDate) : null;
+      // still load stories by canonical project name
+      loadStories(projectName);
+      return;
+    }
 
-          const label =
-            start && end
-              ? `${s.active ? "Current Sprint" : `Sprint ${s.sprintNumber}`} (${start.toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "2-digit",
-                })} – ${end.toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "2-digit",
-                })})`
-              : s.active
-              ? "Current Sprint"
-              : `Sprint ${s.sprintNumber}`;
+    // otherwise request sprints from backend
+    loadSprints(projectName);
 
-          return {
-            id: s.id,
-            sprintNumber: s.sprintNumber,
-            active: s.active,
-            label,
-          };
-        });
-
-        setProjectSprints(formatted);
-
-        // detect active sprint
-        const active = formatted.find((s) => s.active);
-        setSelectedSprint(active ? active.sprintNumber : formatted[0]?.sprintNumber);
-        
-      } catch (err) {
-        console.error("❌ Sprint load failed:", err);
-      }
-    };
-
-    loadBackendSprints();
-
-    // Load stories separately
+    // load stories
     loadStories(projectName);
+  }, [project, loadSprints, loadStories]);
 
-  }, [project]);
-
-
-
-  // Derived lists
+  // ---------- Derived lists and helpers ----------
   const backlog = useMemo(() => stories.filter((s) => !s.sprintNumber || s.status === "BACKLOG"), [stories]);
 
-  const storyVisibleToViewer = (s) => {
+  const storyVisibleToViewer = useCallback((s) => {
     if (isManager) {
       if (selectedEmployee && selectedEmployee !== "ALL") {
         return String(s.empId) === String(selectedEmployee) || (s.assignedTo || "").includes(selectedEmployee);
@@ -427,7 +321,7 @@ export default function ProjectSpacesPage() {
       const matchByName = user?.name && s.assignedTo && s.assignedTo === user.name;
       return matchById || matchByName;
     }
-  };
+  }, [isManager, selectedEmployee, user]);
 
   const sprintStories = useMemo(() => {
     if (selectedSprint == null) return [];
@@ -435,7 +329,7 @@ export default function ProjectSpacesPage() {
       if (!storyVisibleToViewer(s)) return false;
       return s.sprintNumber === selectedSprint && ["ASSIGNED", "IN_PROGRESS", "TESTING", "COMPLETED", "CANCELLED"].includes(s.status);
     });
-  }, [stories, selectedSprint, selectedEmployee, user]);
+  }, [stories, selectedSprint, storyVisibleToViewer]);
 
   const spilloverFromSelectedSprint = useMemo(() => {
     if (selectedSprint == null) return [];
@@ -443,7 +337,7 @@ export default function ProjectSpacesPage() {
       if (!storyVisibleToViewer(s)) return false;
       return s.spillover && s.spilloverFromSprint === selectedSprint;
     });
-  }, [stories, selectedSprint, selectedEmployee, user]);
+  }, [stories, selectedSprint, storyVisibleToViewer]);
 
   const byStatus = useMemo(() => {
     const map = { ASSIGNED: [], IN_PROGRESS: [], TESTING: [], COMPLETED: [], CANCELLED: [] };
@@ -454,30 +348,32 @@ export default function ProjectSpacesPage() {
     return map;
   }, [sprintStories]);
 
-  // Updates & DnD
-  const updateStory = async (id, payload) => {
+  // DnD / update story
+  const updateStory = useCallback(async (id, payload) => {
     try {
       await apiPut(`/story-table/${id}`, payload);
-      await loadStories(project?.clientInfo?.projectName);
+      // refresh
+      const projectName = project?.clientInfo?.projectName;
+      if (projectName) await loadStories(projectName);
     } catch (e) {
       console.error("updateStory:", e);
     }
-  };
+  }, [project, loadStories]);
 
   const onDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
     if (!destination || destination.droppableId === source.droppableId) return;
-
     try {
       const story = stories.find((x) => String(x.id) === String(draggableId));
       if (!story) return;
 
-      // Prevent non-managers from moving items that are inside the spillover area
       const movedFromSpillover =
         source.droppableId === "SPILLOVER_TILE" ||
         (story.spillover && story.spilloverFromSprint === selectedSprint);
       if (movedFromSpillover && !isManager) {
-        await loadStories(project?.clientInfo?.projectName);
+        // revert
+        const projectName = project?.clientInfo?.projectName;
+        if (projectName) await loadStories(projectName);
         return;
       }
 
@@ -492,7 +388,7 @@ export default function ProjectSpacesPage() {
     }
   };
 
-  // modal controls
+  // ---------- Modal controls ----------
   const openModal = (story) => {
     setSelectedStory(story);
     setModalOpen(true);
@@ -512,15 +408,15 @@ export default function ProjectSpacesPage() {
         payload.previousSprints = prev;
       }
       await updateStory(selectedStory.id, payload);
-      await loadStories(project?.clientInfo?.projectName);
-      const refreshed = stories.find((s) => s.id === selectedStory.id);
-      setSelectedStory(refreshed || { ...selectedStory, ...updates });
+      // refresh UI then close
+      const projectName = project?.clientInfo?.projectName;
+      if (projectName) await loadStories(projectName);
     } catch (e) {
       console.error("saveStoryChanges:", e);
     }
   };
 
-  // UI constants
+  // ---------- UI constants ----------
   const columns = ["ASSIGNED", "IN_PROGRESS", "TESTING", "COMPLETED", "CANCELLED"];
   const columnStyles = {
     ASSIGNED: "bg-blue-50 border-blue-200",
@@ -537,7 +433,6 @@ export default function ProjectSpacesPage() {
     CANCELLED: "text-gray-600",
   };
 
-  // convenience: visible 5 sprints for dropdown
   const sprintWindow = visibleSprintWindow(projectSprints, selectedSprint, 5);
 
   const isOverdue = (s) => {
@@ -550,6 +445,7 @@ export default function ProjectSpacesPage() {
     }
   };
 
+  // ---------- Render ----------
   return (
     <div className="p-6 min-h-screen bg-gray-50">
       {/* Header */}
@@ -588,67 +484,76 @@ export default function ProjectSpacesPage() {
 
         {/* Right side filters */}
         <div className="flex items-center gap-4 ml-auto pr-4">
-          {/* Sprint dropdown */}
+          {/* Sprint dropdown (custom popover with scroll) */}
           <div className="flex flex-col">
             <label className="text-xs text-black">Sprint</label>
-
-            <div className="relative w-[220px]">
-              {/* Trigger button */}
+            <div className="relative w-[260px]">
               <button
                 className="w-full border border-gray-300 bg-white rounded-md px-2 py-1 text-sm flex justify-between items-center"
                 onClick={() => setShowSprintMenu((prev) => !prev)}
+                aria-haspopup="listbox"
+                aria-expanded={showSprintMenu}
               >
                 <span className="truncate">
-                  {
-                    projectSprints.find((sp) => sp.sprintNumber === selectedSprint)
-                      ?.label || "Select Sprint"
-                  }
+                  {projectSprints.find((sp) => sp.sprintNumber === selectedSprint)?.label || "Select Sprint"}
                 </span>
-                <span className="text-gray-500">▼</span>
+                <span className="text-gray-500">▾</span>
               </button>
 
               {showSprintMenu && (
                 <div
-                  className="absolute mt-1 w-full bg-white border border-gray-200 text-black rounded-md shadow-lg z-50
-                            max-h-[180px] overflow-y-auto"
+                  className="absolute mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-[180px] overflow-y-auto"
+                  role="listbox"
                 >
-                  {projectSprints.map((sp) => {
-                    const isActiveSprint = sp.active === true;
-
-                    return (
-                      <div
-                        key={sp.id}
-                        className={`px-3 py-2 text-sm cursor-pointer 
-                          hover:bg-gray-100 flex justify-between items-center
-                          ${sp.sprintNumber === selectedSprint ? "bg-blue-50" : ""}`}
-                        onClick={() => {
-                          setSelectedSprint(sp.sprintNumber);
-                          setActiveTab("sprint");
-                          setShowSprintMenu(false);
-                        }}
-                      >
-                        <span
-                          className={`${
-                            isActiveSprint ? "font-semibold text-blue-700" : "text-gray-700"
-                          }`}
+                  {/* show windowed sprints (centered) for quicker navigation but also show full list */}
+                  {sprintWindow.length > 0 ? (
+                    sprintWindow.map((sp) => {
+                      const isActiveSprint = sp.active === true;
+                      return (
+                        <div
+                          key={sp.id}
+                          role="option"
+                          tabIndex={0}
+                          className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 flex justify-between items-center ${sp.sprintNumber === selectedSprint ? "bg-blue-50" : ""}`}
+                          onClick={() => {
+                            setSelectedSprint(sp.sprintNumber);
+                            setActiveTab("sprint");
+                            setShowSprintMenu(false);
+                          }}
                         >
-                          {sp.label}
-                        </span>
-
-                        {isActiveSprint && (
-                          <span className="text-xs text-green-700 font-semibold ml-2">
-                            Current Sprint
+                          <span className={`${isActiveSprint ? "font-semibold text-blue-700" : "text-gray-700"}`}>
+                            {sp.label}
                           </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                          {isActiveSprint && <span className="text-xs text-green-700 font-semibold ml-2">Current Sprint</span>}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    // fallback: show all projectSprints
+                    (projectSprints || []).map((sp) => {
+                      const isActiveSprint = sp.active === true;
+                      return (
+                        <div
+                          key={sp.id}
+                          role="option"
+                          tabIndex={0}
+                          className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 flex justify-between items-center ${sp.sprintNumber === selectedSprint ? "bg-blue-50" : ""}`}
+                          onClick={() => {
+                            setSelectedSprint(sp.sprintNumber);
+                            setActiveTab("sprint");
+                            setShowSprintMenu(false);
+                          }}
+                        >
+                          <span className={`${isActiveSprint ? "font-semibold text-blue-700" : "text-gray-700"}`}>{sp.label}</span>
+                          {isActiveSprint && <span className="text-xs text-green-700 font-semibold ml-2">Current Sprint</span>}
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               )}
             </div>
           </div>
-
-
 
           {/* Employee filter */}
           {isManager && (
@@ -671,7 +576,7 @@ export default function ProjectSpacesPage() {
         </div>
       </div>
 
-      {/* Main */}
+      {/* Main content */}
       {loading ? (
         <p className="text-sm text-gray-500 mt-4">Loading stories...</p>
       ) : activeTab === "backlog" ? (
@@ -717,26 +622,32 @@ export default function ProjectSpacesPage() {
                             </option>
                           ))}
                         </select>
+
                         {s.assignedTo && <p className="text-xs text-green-600 mt-1">Assigned to {s.assignedTo}</p>}
                       </div>
 
                       <div>
                         <label className="text-sm font-medium text-gray-700 block mb-1">Sprint</label>
-                        <InlineSprintDropdown
-                          projectSprints={projectSprints}
-                          value={s.sprintNumber ?? null}
-                          onChange={async (newVal) => {
+                        <select
+                          className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                          value={s.sprintNumber ?? ""}
+                          onChange={async (e) => {
+                            const val = e.target.value;
                             try {
-                              await updateStory(s.id, {
-                                sprintNumber: newVal,
-                              });
+                              await updateStory(s.id, { sprintNumber: val === "" ? null : Number(val) });
                             } catch (err) {
                               console.error(err);
                             }
                           }}
-                          showSpillover={true}
-                        />
-
+                        >
+                          <option value="">No sprint (Backlog)</option>
+                          {projectSprints.map((sp) => (
+                            <option key={sp.id} value={sp.sprintNumber}>
+                              {formatSprintName(sp)}
+                            </option>
+                          ))}
+                          <option value="999">Spillover</option>
+                        </select>
                         {s.sprintNumber && <p className="text-xs text-blue-600 mt-1">Planned for Sprint {s.sprintNumber}</p>}
                       </div>
                     </div>
@@ -762,7 +673,7 @@ export default function ProjectSpacesPage() {
               <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mt-6">
                 {/* Status columns */}
                 {columns.map((status) => (
-                  <StrictModeDroppable droppableId={status} key={status}>
+                  <Droppable droppableId={status} key={status}>
                     {(provided) => (
                       <div
                         ref={provided.innerRef}
@@ -812,7 +723,7 @@ export default function ProjectSpacesPage() {
                         </div>
                       </div>
                     )}
-                  </StrictModeDroppable>
+                  </Droppable>
                 ))}
 
                 {/* Spillover tile */}
@@ -831,7 +742,7 @@ export default function ProjectSpacesPage() {
                                   ref={drag.innerRef}
                                   {...drag.draggableProps}
                                   {...drag.dragHandleProps}
-                                  className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm hover:shadow-md min-h-40 max-h-40 overflow-hidden flex flex-col justify-between cursor-pointer"
+                                  className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm hover:shadow-md min-h-[160px] max-h-40 overflow-hidden flex flex-col justify-between cursor-pointer"
                                   onClick={() => openModal(spStory)}
                                 >
                                   <div>
@@ -859,7 +770,7 @@ export default function ProjectSpacesPage() {
                           return (
                             <div
                               key={spStory.id}
-                              className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm min-h-40 max-h-40 overflow-hidden flex flex-col justify-between cursor-pointer"
+                              className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm min-h-[160px] max-h-[160px] overflow-hidden flex flex-col justify-between cursor-pointer"
                               onClick={() => openModal(spStory)}
                             >
                               <div>
@@ -907,7 +818,7 @@ export default function ProjectSpacesPage() {
                 {selectedStory.spillover && <span className="inline-block px-2 py-1 text-sm rounded bg-amber-100 text-amber-800">Spillover (from sprint {selectedStory.spilloverFromSprint})</span>}
                 {isOverdue(selectedStory) && <span className="inline-block px-2 py-1 text-sm rounded bg-red-100 text-red-800">Overdue</span>}
                 <button className="text-sm text-gray-600 px-3 py-1 rounded hover:bg-gray-100" onClick={() => navigator.clipboard?.writeText(String(selectedStory.id))}>Copy ID</button>
-                <button className="text-sm text-gray-600 px-3 py-1 rounded hover:bg-gray-100" onClick={() => closeModal()}>Close</button>
+                <button className="text-sm text-gray-600 px-3 py-1 rounded hover:bg-gray-100" onClick={closeModal}>Close</button>
               </div>
             </div>
 
@@ -1044,7 +955,8 @@ export default function ProjectSpacesPage() {
                       <button
                         className="rounded border border-zinc-200 px-3 py-2"
                         onClick={async () => {
-                          await loadStories(project?.clientInfo?.projectName);
+                          const projectName = project?.clientInfo?.projectName;
+                          if (projectName) await loadStories(projectName);
                           const original = stories.find((s) => s.id === selectedStory.id);
                           setSelectedStory(original || selectedStory);
                         }}
@@ -1064,7 +976,7 @@ export default function ProjectSpacesPage() {
         </div>
       )}
 
-      {/* Create Story modal - renders AssignTaskPage component inside */}
+      {/* Create Story modal - renders AssignTaskPage */}
       {createModalOpen && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-4xl overflow-auto max-h-[90vh] relative">
@@ -1077,11 +989,14 @@ export default function ProjectSpacesPage() {
 
             <AssignTaskPage
               projectName={project?.clientInfo?.projectName}
-              onClose={() => {
+              onClose={async () => {
                 setCreateModalOpen(false);
                 // refresh stories & sprints after create
-                loadStories(project?.clientInfo?.projectName);
-                loadSprints(project?.clientInfo?.projectName);
+                const projectName = project?.clientInfo?.projectName;
+                if (projectName) {
+                  await loadStories(projectName);
+                  await loadSprints(projectName);
+                }
               }}
             />
           </div>
