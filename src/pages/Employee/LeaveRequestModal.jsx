@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { applyLeave } from '../../lib/leaveService';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
@@ -75,7 +76,9 @@ const LeaveRequestModal = ({ open, onClose, onSuccess }) => {
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={loading}>{loading ? 'Submitting...' : 'Submit'}</Button>
+            <Button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
+              {loading ? 'Submitting...' : 'Submit'}
+            </Button>
           </div>
         </form>
       </DialogContent>

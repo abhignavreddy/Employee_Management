@@ -29,6 +29,7 @@ import MyTasksPage from "./pages/Employee/MyTasksPage";
 import EmployeeBoardPage from "./pages/Employee/EmployeeBoard";
 import MyAttendancePage from "./pages/Employee/MyAttendancePage";
 import MySalaryPage from "./pages/Employee/MySalaryPage.jsx";
+import MyLeavesPage from "./pages/Employee/MyLeaves.jsx";
 
 // HR Pages
 import PayrollPage from "./pages/HR/PayrollPage";
@@ -331,11 +332,11 @@ function App() {
               }
             />
             <Route
-              path="/my-salary"
+              path="/my-leaves"
               element={
                 <ProtectedRoute allowedRoles={["Employee"]}>
                   <AppShell>
-                    <PlaceholderPage title="My Salary" />
+                    <MyLeavesPage/>
                   </AppShell>
                 </ProtectedRoute>
               }
@@ -343,7 +344,7 @@ function App() {
             <Route
               path="/profile"
               element={
-                <ProtectedRoute allowedRoles={["Employee"]}>
+                <ProtectedRoute allowedRoles={["Employee", "HR", "Manager"]}>
                   <AppShell>
                     <ProfilePage />
                   </AppShell>

@@ -270,7 +270,7 @@ export default function EmployeesPage() {
       {/* Employee Detail Dialog - SCROLLABLE */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-          <DialogHeader className="flex-shrink-0">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Employee Details</DialogTitle>
             <DialogDescription>Complete information about the employee</DialogDescription>
           </DialogHeader>

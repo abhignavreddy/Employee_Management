@@ -26,15 +26,14 @@ import { Button } from "../ui/button";
 // ---------- Menu Configuration ----------
 const menuConfig = {
   Manager: [
-    { path: "/projects", label: "Projects", icon: Users },
+    { path: "/projects", label: "Project Pool", icon: Users },
     { path: "/employees", label: "Employees", icon: Users },
-    { path: "/manager-board", label: "Manager Board", icon: Users },
-
     { path: "/attendance", label: "Attendance", icon: Calendar },
     { path: "/leave-requests", label: "Leave Requests", icon: FileText },
     { path: "/all-tasks", label: "All Tasks", icon: FileText },
     { path: "/task-history", label: "Task History", icon: History },
     { path: "/documents-management", label: "Document Management", icon: FolderPlus },
+    { path: "/profile", label: "Profile", icon: Users },
   ],
   HR: [
     { path: "/employee-directory", label: "Employee Directory", icon: Users },
@@ -43,9 +42,10 @@ const menuConfig = {
     { path: "/leave-requests", label: "Leave Requests", icon: FileText },
     { path: "/payroll", label: "Payroll", icon: DollarSign },
     { path: "/documents-management", label: "Document Management", icon: FolderPlus },
+    { path: "/profile", label: "Profile", icon: Users },
   ],
   CEO: [
-    { path: "/projects", label: "Projects", icon: Users },
+    { path: "/projects", label: "Project Pool", icon: Users },
     { path: "/employees", label: "Employees", icon: Users },
     { path: "/attendance", label: "Attendance", icon: Calendar },
     { path: "/leave-requests", label: "Leave Requests", icon: FileText },
@@ -62,6 +62,7 @@ const menuConfig = {
     { path: "/my-tasks", label: "My Tasks", icon: ClipboardList }, 
     { path: "/my-attendance", label: "Attendance History", icon: Calendar },
     { path: "/my-salary", label: "Salary Details", icon: DollarSign },
+    { path: "/my-leaves", label: "My Leaves", icon: DollarSign },
     { path: "/profile", label: "Profile", icon: Users },
   ],
 };
@@ -199,7 +200,7 @@ const Sidebar = () => {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <Building className="w-5 h-5" />
             </div>
-            <span className="font-bold text-lg">CompanyHub</span>
+            <span className="font-bold text-lg">TaskTrailz</span>
           </div>
         )}
         <Button

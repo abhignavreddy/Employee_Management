@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import AddTemplateModal from "../../components/AddTemplateModal";
 import { apiGet, apiDelete } from "../../lib/api";
+import { useNavigate } from "react-router-dom";
 
 export default function ProjectFieldsPage() {
   const [fields, setFields] = useState([]);
@@ -8,6 +9,7 @@ export default function ProjectFieldsPage() {
   const [showModal, setShowModal] = useState(false);
   const [selectedType, setSelectedType] = useState(null);
   const [editField, setEditField] = useState(null);
+  const navigate = useNavigate();
 
   // Temporary auth simulation
   const userRole = "Manager"; // or "CEO", "Employee"
@@ -95,19 +97,25 @@ export default function ProjectFieldsPage() {
     <div className="p-6">
       <header className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-semibold text-zinc-900">Project Fields</h1>
-
-        {isManager && (
-          <button
-            onClick={() => {
-              setSelectedType(null);
-              setEditField(null);
-              setShowModal(true);
-            }}
-            className="px-3 py-1 rounded-md border border-blue-600 text-blue-600 hover:bg-blue-50 transition"
-          >
-            + Add Field
-          </button>
-        )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("/projects")}
+              className="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50"
+            >
+              ← Go Back
+            </button>
+            <button
+              onClick={() => {
+                setSelectedType(null);
+                setEditField(null);
+                setShowModal(true);
+              }}
+              className="px-3 py-1 rounded-md border border-blue-600 text-blue-600 hover:bg-blue-50 transition"
+            >
+              + Add Field
+            </button>
+          </div>
       </header>
 
 

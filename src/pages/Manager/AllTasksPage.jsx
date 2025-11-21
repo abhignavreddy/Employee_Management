@@ -7,6 +7,7 @@ import {
   X,
   Calendar,
   CheckSquare,
+  Users,
 } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -44,6 +45,7 @@ export default function AllTasksPage() {
     search: "",
     status: "all",
     priority: "all",
+    employee: "all", // NEW: Employee filter
   });
 
   const statuses = [
@@ -135,22 +137,21 @@ export default function AllTasksPage() {
 
   const handleEdit = (story) => {
     setEditingStory(story);
-    // Populate form with EXISTING story values from story-table
     setEditForm({
       taskName: story.taskName || "",
       taskDescription: story.taskDescription || "",
       type: story.type || "Story",
       description: story.description || "",
-      assignedTo: story.assignedTo || "", // Keep the name from story
+      assignedTo: story.assignedTo || "",
       project: story.project || "",
-      department: story.department || "", // Keep the department from story
+      department: story.department || "",
       priority: story.priority || "MEDIUM",
       status: story.status || "BACKLOG",
       sprintNumber: story.sprintNumber || 1,
       spillover: story.spillover || false,
       dueDate: story.dueDate ? new Date(story.dueDate).toISOString().split('T')[0] : "",
       acceptanceCriteria: story.acceptanceCriteria || "",
-      empId: story.empId || "", // Store empId separately
+      empId: story.empId || "",
     });
   };
 
@@ -201,7 +202,10 @@ export default function AllTasksPage() {
     const matchPriority =
       filters.priority === "all" ||
       s.priority?.toUpperCase() === filters.priority.toUpperCase();
-    return matchSearch && matchStatus && matchPriority;
+    const matchEmployee =
+      filters.employee === "all" ||
+      s.assignedTo === filters.employee;
+    return matchSearch && matchStatus && matchPriority && matchEmployee;
   });
 
   const formatDate = (dateString) => {
@@ -243,14 +247,15 @@ export default function AllTasksPage() {
           />
         </div>
 
+        {/* Status Filter */}
         <Select
           value={filters.status}
           onValueChange={(v) => setFilters((f) => ({ ...f, status: v }))}
         >
-          <SelectTrigger className="w-40 bg-white border border-gray-200 shadow-sm">
+          <SelectTrigger className="w-40 bg-white/80 backdrop-blur-sm border border-gray-200 shadow-sm">
             <SelectValue placeholder="Filter by Status" />
           </SelectTrigger>
-          <SelectContent className="bg-white shadow-lg border border-gray-200 rounded-md">
+          <SelectContent className="bg-white/95 backdrop-blur-md shadow-lg border border-gray-200 rounded-md">
             <SelectItem value="all">All Status</SelectItem>
             {statuses.map((s) => (
               <SelectItem key={s} value={s}>
@@ -260,14 +265,15 @@ export default function AllTasksPage() {
           </SelectContent>
         </Select>
 
+        {/* Priority Filter */}
         <Select
           value={filters.priority}
           onValueChange={(v) => setFilters((f) => ({ ...f, priority: v }))}
         >
-          <SelectTrigger className="w-40 bg-white border border-gray-200 shadow-sm">
+          <SelectTrigger className="w-40 bg-white/80 backdrop-blur-sm border border-gray-200 shadow-sm">
             <SelectValue placeholder="Filter by Priority" />
           </SelectTrigger>
-          <SelectContent className="bg-white shadow-lg border border-gray-200 rounded-md">
+          <SelectContent className="bg-white/95 backdrop-blur-md shadow-lg border border-gray-200 rounded-md">
             <SelectItem value="all">All Priority</SelectItem>
             {priorities.map((p) => (
               <SelectItem key={p} value={p}>
@@ -277,10 +283,38 @@ export default function AllTasksPage() {
           </SelectContent>
         </Select>
 
+        {/* NEW: Employee Filter */}
+        <Select
+          value={filters.employee}
+          onValueChange={(v) => setFilters((f) => ({ ...f, employee: v }))}
+        >
+          <SelectTrigger className="w-52 bg-white/80 backdrop-blur-sm border border-gray-200 shadow-sm">
+            <Users className="w-4 h-4 mr-2" />
+            <SelectValue placeholder="Filter by Employee" />
+          </SelectTrigger>
+          <SelectContent 
+            className="bg-white/95 backdrop-blur-md shadow-lg border border-gray-200 rounded-md"
+            style={{ maxHeight: '240px', overflowY: 'auto' }}
+          >
+            <SelectItem value="all">All Employees</SelectItem>
+            {employees.map((emp) => {
+              const empName = `${emp.firstName} ${emp.lastName}`;
+              return (
+                <SelectItem key={emp.id} value={empName}>
+                  <span className="flex items-center gap-2">
+                    {empName}
+                    <span className="text-xs text-gray-500">({emp.empId})</span>
+                  </span>
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+
         <Button
           variant="outline"
           onClick={() =>
-            setFilters({ search: "", status: "all", priority: "all" })
+            setFilters({ search: "", status: "all", priority: "all", employee: "all" })
           }
         >
           Reset Filters
@@ -430,11 +464,11 @@ export default function AllTasksPage() {
                   value={editForm.type}
                   onValueChange={(v) => setEditForm({ ...editForm, type: v })}
                 >
-                  <SelectTrigger id="type">
+                  <SelectTrigger id="type" className="bg-white/80 backdrop-blur-sm">
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent 
-                    className="bg-white border border-gray-200 shadow-lg"
+                    className="bg-white/95 backdrop-blur-md border border-gray-200 shadow-lg"
                     style={{ maxHeight: '240px', overflowY: 'auto' }}
                   >
                     {types.map((t) => (
@@ -446,13 +480,12 @@ export default function AllTasksPage() {
                 </Select>
               </div>
 
-              {/* Assigned To - Shows current assignee name, can select new employee */}
+              {/* Assigned To */}
               <div className="space-y-2">
                 <Label htmlFor="assignedTo">Assigned To *</Label>
                 <Select
                   value={editForm.assignedTo}
                   onValueChange={(v) => {
-                    // Find employee by name to get empId
                     const emp = employees.find(e => `${e.firstName} ${e.lastName}` === v);
                     setEditForm({ 
                       ...editForm, 
@@ -461,11 +494,11 @@ export default function AllTasksPage() {
                     });
                   }}
                 >
-                  <SelectTrigger id="assignedTo">
+                  <SelectTrigger id="assignedTo" className="bg-white/80 backdrop-blur-sm">
                     <SelectValue placeholder="Select employee" />
                   </SelectTrigger>
                   <SelectContent 
-                    className="bg-white border border-gray-200 shadow-lg"
+                    className="bg-white/95 backdrop-blur-md border border-gray-200 shadow-lg"
                     style={{ maxHeight: '240px', overflowY: 'auto' }}
                   >
                     {employees.map((emp) => {
@@ -480,18 +513,18 @@ export default function AllTasksPage() {
                 </Select>
               </div>
 
-              {/* Project - Shows current project */}
+              {/* Project */}
               <div className="space-y-2">
                 <Label htmlFor="project">Project *</Label>
                 <Select
                   value={editForm.project}
                   onValueChange={(v) => setEditForm({ ...editForm, project: v })}
                 >
-                  <SelectTrigger id="project">
+                  <SelectTrigger id="project" className="bg-white/80 backdrop-blur-sm">
                     <SelectValue placeholder="Select project" />
                   </SelectTrigger>
                   <SelectContent 
-                    className="bg-white border border-gray-200 shadow-lg"
+                    className="bg-white/95 backdrop-blur-md border border-gray-200 shadow-lg"
                     style={{ maxHeight: '240px', overflowY: 'auto' }}
                   >
                     {projects.map((project, index) => {
@@ -509,21 +542,20 @@ export default function AllTasksPage() {
                 </Select>
               </div>
 
-              {/* Department - Shows current department */}
+              {/* Department */}
               <div className="space-y-2">
                 <Label htmlFor="department">Department *</Label>
                 <Select
                   value={editForm.department}
                   onValueChange={(v) => setEditForm({ ...editForm, department: v })}
                 >
-                  <SelectTrigger id="department">
+                  <SelectTrigger id="department" className="bg-white/80 backdrop-blur-sm">
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent 
-                    className="bg-white border border-gray-200 shadow-lg"
+                    className="bg-white/95 backdrop-blur-md border border-gray-200 shadow-lg"
                     style={{ maxHeight: '240px', overflowY: 'auto' }}
                   >
-                    {/* Show current department first if it's not in the list */}
                     {editForm.department && !DEPARTMENTS.includes(editForm.department) && (
                       <SelectItem value={editForm.department}>
                         {editForm.department}
@@ -538,7 +570,6 @@ export default function AllTasksPage() {
                 </Select>
               </div>
 
-
               {/* Status */}
               <div className="space-y-2">
                 <Label htmlFor="status">Status *</Label>
@@ -546,10 +577,10 @@ export default function AllTasksPage() {
                   value={editForm.status}
                   onValueChange={(v) => setEditForm({ ...editForm, status: v })}
                 >
-                  <SelectTrigger id="status">
+                  <SelectTrigger id="status" className="bg-white/80 backdrop-blur-sm">
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200 shadow-lg">
+                  <SelectContent className="bg-white/95 backdrop-blur-md border border-gray-200 shadow-lg">
                     {statuses.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
@@ -566,10 +597,10 @@ export default function AllTasksPage() {
                   value={editForm.priority}
                   onValueChange={(v) => setEditForm({ ...editForm, priority: v })}
                 >
-                  <SelectTrigger id="priority">
+                  <SelectTrigger id="priority" className="bg-white/80 backdrop-blur-sm">
                     <SelectValue placeholder="Select priority" />
                   </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200 shadow-lg">
+                  <SelectContent className="bg-white/95 backdrop-blur-md border border-gray-200 shadow-lg">
                     {priorities.map((p) => (
                       <SelectItem key={p} value={p}>
                         {p}

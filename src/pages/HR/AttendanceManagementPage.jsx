@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useMemo } from "react";
 import apiClient from "../../lib/apiClient";
 import { useAuth } from "../../contexts/AuthContext";
@@ -38,12 +39,28 @@ import {
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { getHolidayByDate, ensureHolidays } from "../../lib/publicHolidays";
+
+// Helper functions for local date/time formatting (use user's local timezone)
+const displayTime = (timeString) => {
+  if (!timeString) return "—";
+  return new Date(timeString).toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const displayDate = (dateString) => {
+  if (!dateString) return "";
+  return new Date(dateString).toLocaleDateString("en-IN");
+};
 
 const AttendanceAPI = {
   getAll: () =>
     apiClient.get(`/attendance?page=0&size=500`).then((r) => r.data.content),
   getByEmpId: (empId) => apiClient.get(`/attendance/employee/${empId}`).then((r) => r.data),
   checkIn: (payload) => apiClient.post(`/attendance/checkin`, payload).then((r) => r.data),
+  deleteRecord: (id) => apiClient.delete(`/attendance/${id}`).then((r) => r.data),
   checkOut: (id) =>
     apiClient
       .patch(`/attendance/checkout/${id}`, { checkOut: new Date().toISOString() })
@@ -52,6 +69,9 @@ const AttendanceAPI = {
 
 export default function AttendanceManagementPage() {
   const { user } = useAuth();
+  const today = new Date().toISOString().split("T")[0];
+  const [todayHoliday, setTodayHoliday] = useState(null);
+  const [isOnLeaveToday, setIsOnLeaveToday] = useState(false);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
@@ -61,11 +81,12 @@ export default function AttendanceManagementPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmpId, setSelectedEmpId] = useState(null);
   const [selectedEmpName, setSelectedEmpName] = useState("");
+  const [selectedEmpRecords, setSelectedEmpRecords] = useState([]);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
 
   const isManagerView = ["HR", "Manager", "CEO"].includes(user?.role);
 
-  // Helper to filter records by date ignoring timestamps
+  // Filter helper by date ignoring timestamps
   const filterByDate = (records, targetDate) => {
     return records.filter((r) => {
       if (!r.date) return false;
@@ -84,7 +105,18 @@ export default function AttendanceManagementPage() {
     try {
       const selfRecords = await AttendanceAPI.getByEmpId(user.empId);
 
-      // Get today's record for self
+      // Fetch leave requests for the current user
+      let leaves = [];
+      try {
+        const leaveRes = await apiClient.get(`/leave-approvel/employee/${user.empId}`);
+        leaves = leaveRes.data || [];
+        console.log("📋 [HR/Manager] Fetched Leave Requests:", leaves);
+      } catch (err) {
+        console.error("Failed to load leave data:", err);
+        leaves = [];
+      }
+
+      // Find today's record for self
       const today = new Date().toISOString().split("T")[0];
       const personalToday = selfRecords.find((rec) => {
         const recDate = new Date(rec.date);
@@ -97,13 +129,118 @@ export default function AttendanceManagementPage() {
       }) || null;
       setTodayRecord(personalToday);
 
+      // Check if current user is on APPROVED leave today - ONLY for APPROVED leaves
+      const onLeaveToday = leaves.some((l) => {
+        const status = l.status?.toUpperCase() || "";
+        console.log("🔍 [HR/Manager] Checking leave:", {
+          fromDate: l.fromDate,
+          toDate: l.toDate,
+          status: status,
+          originalStatus: l.status,
+          isApproved: status === "APPROVED"
+        });
+        
+        if (status !== "APPROVED") {
+          console.log("❌ [HR/Manager] Leave not approved, skipping");
+          return false;
+        }
+        
+        const fromDate = new Date(l.fromDate).toISOString().split("T")[0];
+        const toDate = new Date(l.toDate).toISOString().split("T")[0];
+        
+        const isInRange = today >= fromDate && today <= toDate;
+        console.log("📅 [HR/Manager] Date check:", { today, fromDate, toDate, isInRange });
+        
+        return isInRange;
+      });
+      setIsOnLeaveToday(onLeaveToday);
+      
+      console.log("✅ [HR/Manager] Final Leave Status - Today:", today, "On Leave:", onLeaveToday);
+
       if (isManagerView) {
         // Get all without date filter
         const allRecords = await AttendanceAPI.getAll();
 
-        // Filter by selected date client side
-        const filtered = filterByDate(allRecords, selectedDate);
-        setRecords(filtered);
+        // Fetch all employees' leave requests to update attendance status
+        let allLeaves = [];
+        try {
+          const allLeavesRes = await apiClient.get("/leave-approvel/view", {
+            params: { role: user.role?.toUpperCase() }
+          });
+          allLeaves = allLeavesRes.data || [];
+          console.log("📋 [HR/Manager] Fetched ALL leave requests:", allLeaves);
+        } catch (err) {
+          console.error("Failed to load all leave data:", err);
+        }
+
+        // Update attendance records with correct leave status using refined rules
+        const todayDateObj = new Date(today);
+        const enrichedRecords = allRecords.map(record => {
+          if (!record.date) return record;
+          const recordDateObj = new Date(record.date);
+          const recordDateStr = recordDateObj.toISOString().split("T")[0];
+
+          const hasApprovedLeave = allLeaves.some(l => {
+            const status = l.status?.toUpperCase();
+            if (status !== "APPROVED") return false;
+            const empId = l.empId || l.emp_id || l.employeeId;
+            if (empId !== record.empId) return false;
+            const fromStr = new Date(l.fromDate).toISOString().split("T")[0];
+            const toStr = new Date(l.toDate).toISOString().split("T")[0];
+            return recordDateStr >= fromStr && recordDateStr <= toStr;
+          });
+
+          let finalStatus = record.status;
+          if (hasApprovedLeave) {
+            finalStatus = "Leave";
+          } else if (finalStatus === "Leave" || finalStatus === "OnLeave") {
+            if (record.checkIn) {
+              finalStatus = "Present";
+            } else if (recordDateObj < todayDateObj) {
+              finalStatus = "Absent";
+            } else {
+              finalStatus = "—"; // show hyphen for today/future with revoked leave
+            }
+          }
+          return { ...record, status: finalStatus };
+        });
+
+        // Build synthetic records for approved leaves that have NO attendance row for selected date
+        const approvedLeavesForSelectedDate = allLeaves.filter(l => {
+          const status = l.status?.toUpperCase();
+          if (status !== "APPROVED") return false;
+          const fromStr = new Date(l.fromDate).toISOString().split("T")[0];
+          const toStr = new Date(l.toDate).toISOString().split("T")[0];
+          return selectedDate >= fromStr && selectedDate <= toStr;
+        });
+
+        const attendanceForSelectedDate = filterByDate(enrichedRecords, selectedDate);
+        const existingEmpIds = new Set(attendanceForSelectedDate.map(r => r.empId));
+
+        const syntheticLeaveRecords = approvedLeavesForSelectedDate
+          .filter(l => {
+            const empId = l.empId || l.emp_id || l.employeeId;
+            return empId && !existingEmpIds.has(empId);
+          })
+          .map(l => {
+            const empId = l.empId || l.emp_id || l.employeeId;
+            return {
+              id: `synthetic-leave-${empId}-${selectedDate}`,
+              empId,
+              empName: l.empName || l.emp_name || "Unknown",
+              date: selectedDate,
+              status: "Leave",
+              checkIn: null,
+              checkOut: null,
+              workHours: 0,
+              workMode: "-",
+            };
+          });
+
+        // Combine and filter out rows with hyphen status (rejected leaves)
+        const combined = [...attendanceForSelectedDate, ...syntheticLeaveRecords].filter(r => r.status !== "—");
+        console.log("📊 [HR/Manager] Enriched records with synthetic leave rows:", combined);
+        setRecords(combined);
       } else {
         const filtered = filterByDate(selfRecords, selectedDate);
         setRecords(filtered);
@@ -117,10 +254,32 @@ export default function AttendanceManagementPage() {
   };
 
   useEffect(() => {
-    load();
+    // load attendance and ensure holidays for current year
+    (async () => {
+      await ensureHolidays(new Date().getFullYear());
+      setTodayHoliday(getHolidayByDate(today));
+      await load();
+    })();
   }, [selectedDate, user]);
 
   const handleCheckIn = async () => {
+    if (isOnLeaveToday) return alert("Check-in disabled: You are on approved leave today.");
+    if (todayHoliday) return alert(`Check-in disabled: Public holiday — ${todayHoliday.name}`);
+    
+    // Check if already checked in today
+    if (todayRecord && todayRecord.checkIn) {
+      return alert("You have already checked in today!");
+    }
+    
+    console.log("🔵 [HR/Manager] Attempting check-in...", { 
+      empId: user.empId, 
+      empName: user.name, 
+      workMode,
+      todayRecord,
+      isOnLeaveToday,
+      todayHoliday 
+    });
+    
     try {
       const now = new Date();
       const payload = {
@@ -132,45 +291,68 @@ export default function AttendanceManagementPage() {
         status: "Present",
         empRole: user.role,
       };
-      await AttendanceAPI.checkIn(payload);
+      
+      console.log("📤 [HR/Manager] Sending check-in payload:", payload);
+      
+      let response;
+      // If today's record exists with status "Absent" (due to rejected leave), DELETE it first
+      if (todayRecord && todayRecord.id && !todayRecord.checkIn) {
+        console.log("🗑️ [HR/Manager] Deleting old Absent record:", todayRecord.id);
+        try {
+          await AttendanceAPI.deleteRecord(todayRecord.id);
+          console.log("✅ [HR/Manager] Old record deleted");
+        } catch (delErr) {
+          console.warn("⚠️ [HR/Manager] Could not delete old record, will try to create new one anyway");
+        }
+      }
+      
+      // Now CREATE a new record
+      console.log("➕ [HR/Manager] Creating new check-in record");
+      response = await AttendanceAPI.checkIn(payload);
+      
+      console.log("✅ [HR/Manager] Check-in response:", response);
+      
       alert("Checked in successfully!");
       load();
     } catch (err) {
-      alert(err.response?.data?.message || "Check-in failed");
+      console.error("❌ [HR/Manager] Check-in error:", err);
+      console.error("❌ [HR/Manager] Error response:", err.response?.data);
+      alert(err.response?.data?.message || err.message || "Check-in failed");
     }
   };
 
   const handleCheckOut = async () => {
+    if (isOnLeaveToday) return alert("Check-out disabled: You are on approved leave today.");
+    if (todayHoliday) return alert(`Check-out disabled: Public holiday — ${todayHoliday.name}`);
     if (!todayRecord) return alert("No check-in found for today.");
+    
+    console.log("🔴 [HR/Manager] Attempting check-out...", { recordId: todayRecord.id, empId: user.empId });
+    
     try {
       await AttendanceAPI.checkOut(todayRecord.id);
       alert("Checked out successfully!");
       load();
     } catch (err) {
-      alert(err.response?.data?.message || "Check-out failed");
+      console.error("❌ [HR/Manager] Check-out error:", err);
+      console.error("❌ [HR/Manager] Error response:", err.response?.data);
+      alert(err.response?.data?.message || err.message || "Check-out failed");
     }
   };
 
-  // Filter all records (from all dates) for a given employee
   const employeeRecords = (empId) => records.filter((rec) => rec.empId === empId);
 
   const handleDownloadCSV = (empId, empName) => {
     const empRecs = employeeRecords(empId);
     if (!empRecs.length) return alert("No records to download");
     const rows = empRecs.map((r) => {
-      // CHANGED: Format checkIn and checkOut in IST timezone
-      const checkIn = r.checkIn
-        ? new Date(r.checkIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
-        : "-";
-      const checkOut = r.checkOut
-        ? new Date(r.checkOut).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
-        : "-";
+      const checkIn = r.checkIn ? displayTime(r.checkIn) : "-";
+      const checkOut = r.checkOut ? displayTime(r.checkOut) : "-";
       const workHours =
         r.checkIn && r.checkOut
           ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2)
           : 0;
       return [
-        new Date(r.date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
+        displayDate(r.date),
         checkIn,
         checkOut,
         workHours,
@@ -192,25 +374,13 @@ export default function AttendanceManagementPage() {
     const doc = new jsPDF();
     doc.text(`Attendance Records: ${empName}`, 14, 15);
     const tableData = empRecs.map((r) => {
-      // CHANGED: Format checkIn and checkOut in IST timezone
-      const checkIn = r.checkIn
-        ? new Date(r.checkIn).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
-        : "-";
-      const checkOut = r.checkOut
-        ? new Date(r.checkOut).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
-        : "-";
+      const checkIn = r.checkIn ? displayTime(r.checkIn) : "-";
+      const checkOut = r.checkOut ? displayTime(r.checkOut) : "-";
       const workHours =
         r.checkIn && r.checkOut
           ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2)
           : 0;
-      return [
-        new Date(r.date).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
-        checkIn,
-        checkOut,
-        workHours,
-        r.status,
-        r.workMode || "-",
-      ];
+      return [displayDate(r.date), checkIn, checkOut, workHours, r.status, r.workMode || "-"];
     });
     autoTable(doc, { head: [["Date", "Check In", "Check Out", "Hours", "Status", "Mode"]], body: tableData, startY: 30 });
     doc.save(`${empName}_Attendance.pdf`);
@@ -277,17 +447,17 @@ export default function AttendanceManagementPage() {
 
             {/* Check-in / Check-out */}
             <Button
-              disabled={!canCheckIn}
+              disabled={!canCheckIn || todayHoliday || isOnLeaveToday}
               onClick={handleCheckIn}
-              className={`flex items-center text-white ${canCheckIn ? "bg-green-600 hover:bg-green-700" : "bg-gray-400"}`}
+              className={`flex items-center text-white ${canCheckIn && !isOnLeaveToday && !todayHoliday ? "bg-green-600 hover:bg-green-700" : "bg-gray-400"}`}
             >
               <LogIn className="w-4 h-4 mr-2" />
               Check In
             </Button>
             <Button
-              disabled={!canCheckOut}
+              disabled={!canCheckOut || todayHoliday || isOnLeaveToday}
               onClick={handleCheckOut}
-              className={`flex items-center text-white ${canCheckOut ? "bg-red-600 hover:bg-red-700" : "bg-gray-400"}`}
+              className={`flex items-center text-white ${canCheckOut && !isOnLeaveToday && !todayHoliday ? "bg-red-600 hover:bg-red-700" : "bg-gray-400"}`}
             >
               <LogOut className="w-4 h-4 mr-2" />
               Check Out
@@ -303,6 +473,18 @@ export default function AttendanceManagementPage() {
           </div>
         )}
       </div>
+
+      {isOnLeaveToday && (
+        <div className="p-3 mb-2 bg-yellow-100 text-yellow-800 rounded-md border border-yellow-300">
+          You are on approved leave today. Check-In/Check-Out is disabled.
+        </div>
+      )}
+
+      {todayHoliday && (
+        <div className="p-3 mb-2 bg-yellow-50 text-yellow-800 rounded-md border border-yellow-300">
+          Today is a public holiday: <strong>{todayHoliday.name}</strong>. Check-In/Check-Out is disabled.
+        </div>
+      )}
 
       {/* Summary Cards */}
       {isManagerView && (
@@ -375,9 +557,7 @@ export default function AttendanceManagementPage() {
       <Card className="border bg-white shadow-lg">
         <CardHeader>
           <CardTitle>Daily Attendance Records</CardTitle>
-          <CardDescription>
-            Viewing: {new Date(selectedDate).toLocaleDateString()}
-          </CardDescription>
+          <CardDescription>Viewing: {displayDate(selectedDate)}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-lg border bg-white">
@@ -399,51 +579,49 @@ export default function AttendanceManagementPage() {
                   <TableRow key={r.empId || r.id}>
                     {isManagerView && <TableCell>{r.empName}</TableCell>}
                     {isManagerView && <TableCell>{r.empId}</TableCell>}
-                    {/* CHANGED - checkIn in IST */}
                     <TableCell>
-                      {r.checkIn
-                        ? new Date(r.checkIn).toLocaleTimeString("en-IN", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            timeZone: "Asia/Kolkata",
-                          })
-                        : "—"}
+                      {r.checkIn ? displayTime(r.checkIn) : "—"}
                     </TableCell>
-
-                    {/* CHANGED - checkOut in IST */}
                     <TableCell>
-                      {r.checkOut
-                        ? new Date(r.checkOut).toLocaleTimeString("en-IN", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            timeZone: "Asia/Kolkata",
-                          })
-                        : "—"}
+                      {r.checkOut ? displayTime(r.checkOut) : "—"}
                     </TableCell>
-
                     <TableCell>
                       {r.workHours !== undefined && r.workHours !== null
-                        ? `${r.workHours.toFixed(2)} h`
+                        ? (() => {
+                            const hours = Math.floor(r.workHours);
+                            const minutes = Math.round((r.workHours - hours) * 60);
+                            return `${hours}h ${minutes}m`;
+                          })()
                         : r.checkIn && r.checkOut
-                        ? `${(
-                            (new Date(r.checkOut) - new Date(r.checkIn)) /
-                            (1000 * 60 * 60)
-                          ).toFixed(2)} h`
+                        ? (() => {
+                            const diffMs = new Date(r.checkOut) - new Date(r.checkIn);
+                            const totalMinutes = Math.floor(diffMs / (1000 * 60));
+                            const hours = Math.floor(totalMinutes / 60);
+                            const minutes = totalMinutes % 60;
+                            return `${hours}h ${minutes}m`;
+                          })()
                         : "—"}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={getStatusColor(r.status)}>
-                        {r.status}
-                      </Badge>
+                      {r.status === "—" || !r.status ? (
+                        <span className="text-gray-400">—</span>
+                      ) : (
+                        <Badge variant="outline" className={getStatusColor(r.status)}>
+                          {r.status}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>{r.workMode || "—"}</TableCell>
                     <TableCell>
                       <Button
                         size="sm"
                         className="mr-2 bg-blue-600 hover:bg-blue-700 text-white w-[110px]"
-                        onClick={() => {
+                        onClick={async () => {
                           setSelectedEmpId(r.empId);
                           setSelectedEmpName(r.empName);
+                          // fetch employee's full attendance records for timesheet
+                          const allEmpRecords = await AttendanceAPI.getByEmpId(r.empId);
+                          setSelectedEmpRecords(allEmpRecords);
                           setIsTimesheetOpen(true);
                         }}
                       >
@@ -457,10 +635,14 @@ export default function AttendanceManagementPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent className="min-w-[110px] z-9999 bg-white">
-                          <DropdownMenuItem onClick={() => handleDownloadCSV(r.empId, r.empName)}>
+                          <DropdownMenuItem
+                            onClick={() => handleDownloadCSV(r.empId, r.empName)}
+                          >
                             Download CSV
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDownloadPDF(r.empId, r.empName)}>
+                          <DropdownMenuItem
+                            onClick={() => handleDownloadPDF(r.empId, r.empName)}
+                          >
                             Download PDF
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -484,7 +666,7 @@ export default function AttendanceManagementPage() {
       <TimesheetModal
         open={isTimesheetOpen}
         onClose={() => setIsTimesheetOpen(false)}
-        records={employeeRecords(selectedEmpId)}
+        records={selectedEmpRecords}
         empId={selectedEmpId}
         empName={selectedEmpName}
       />
