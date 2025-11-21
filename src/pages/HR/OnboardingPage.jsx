@@ -110,6 +110,52 @@ export default function OnboardingPage() {
 
   const [onboardedThisMonth, setOnboardedThisMonth] = useState(0);
 
+  const getPasswordStrength = (password) => {
+    if (password.length === 0) {
+      return { 
+        strength: 'none', 
+        color: 'bg-gray-300', 
+        textColor: 'text-gray-600',
+        width: '0%', 
+        label: '' 
+      };
+    }
+    if (password.length < 8) {
+      return { 
+        strength: 'too short', 
+        color: 'bg-red-500', 
+        textColor: 'text-red-600',
+        width: '25%', 
+        label: 'Too Short (min 8 characters)' 
+      };
+    }
+    if (password.length < 12) {
+      return { 
+        strength: 'weak', 
+        color: 'bg-orange-500', 
+        textColor: 'text-orange-600',
+        width: '50%', 
+        label: 'Weak' 
+      };
+    }
+    if (password.length < 16) {
+      return { 
+        strength: 'good', 
+        color: 'bg-yellow-500', 
+        textColor: 'text-yellow-600',
+        width: '75%', 
+        label: 'Good' 
+      };
+    }
+    return { 
+      strength: 'strong', 
+      color: 'bg-green-500', 
+      textColor: 'text-green-600',
+      width: '100%', 
+      label: 'Strong' 
+    };
+  };
+
   // Generate Employee ID automatically
   useEffect(() => {
     if (createForm.firstName || createForm.lastName) {
@@ -145,56 +191,105 @@ export default function OnboardingPage() {
 
   // ========= CREATE EMPLOYEE =========
   const submitCreate = async (e) => {
-    e.preventDefault();
-    setCreateSubmitting(true);
-    try {
-      const ifscOk = /^[A-Z]{4}[A-Z0-9]{7}$/.test(
-        createForm.bankDetails.ifscCode || ""
-      );
-      if (!ifscOk) {
-        toast({
-          title: "Invalid IFSC",
-          description:
-            "Use 4 letters followed by 7 alphanumeric characters.",
-        });
-        setCreateSubmitting(false);
-        return;
-      }
-
-      const payload = {
-        title: createForm.title,
-        firstName: createForm.firstName,
-        lastName: createForm.lastName,
-        email: createForm.email,
-        password: createForm.password,
-        phoneNumber: parseNum(createForm.phoneNumber),
-        empRole: createForm.empRole,
-        empId: createForm.empId,
-        bloodGroup: createForm.bloodGroup,
-        salary: parseNum(createForm.salary),
-        address: createForm.address,
-        bankDetails: createForm.bankDetails,
-        emergencyContact: createForm.emergencyContact,
-      };
-
-      await EmployeeApi.create(payload, "HR");
+  e.preventDefault();
+  setCreateSubmitting(true);
+  
+  try {
+    const ifscOk = /^[A-Z]{4}[A-Z0-9]{7}$/.test(
+      createForm.bankDetails.ifscCode || ""
+    );
+    if (!ifscOk) {
       toast({
-        title: "Employee created",
-        description: `${payload.empId} added successfully.`,
+        title: "Invalid IFSC",
+        description:
+          "Use 4 letters followed by 7 alphanumeric characters.",
       });
-      setCreateForm(emptyCreate);
-      setCreateOpen(false);
-      await loadList(0);
-    } catch (err) {
+      setCreateSubmitting(false);
+      return;
+    }
+
+    const payload = {
+      title: createForm.title,
+      firstName: createForm.firstName,
+      lastName: createForm.lastName,
+      email: createForm.email,
+      password: createForm.password,
+      phoneNumber: parseNum(createForm.phoneNumber),
+      empRole: createForm.empRole,
+      empId: createForm.empId,
+      bloodGroup: createForm.bloodGroup || undefined, // Send undefined if empty
+      salary: parseNum(createForm.salary),
+      address: {
+        address1: createForm.address.address1,
+        address2: createForm.address.address2 || undefined,
+        country: createForm.address.country,
+        city: createForm.address.city,
+        pincode: parseNum(createForm.address.pincode),
+      },
+      bankDetails: {
+        bankAccount: parseNum(createForm.bankDetails.bankAccount),
+        ifscCode: createForm.bankDetails.ifscCode,
+        bankName: createForm.bankDetails.bankName,
+        branchName: createForm.bankDetails.branchName,
+      },
+      emergencyContact: {
+        name: createForm.emergencyContact.name,
+        contactNumber: parseNum(createForm.emergencyContact.contactNumber),
+        relation: createForm.emergencyContact.relation,
+      },
+    };
+
+    // Log payload for debugging
+    console.log('📤 Sending payload:', JSON.stringify(payload, null, 2));
+
+    await EmployeeApi.create(payload, "HR");
+    
+    toast({
+      title: "Employee created",
+      description: `${payload.empId} added successfully.`,
+    });
+    setCreateForm(emptyCreate);
+    setCreateOpen(false);
+    await loadList(0);
+    
+  } catch (err) {
+    console.error('❌ Full error:', err);
+    console.error('❌ Response:', err?.response);
+    
+    // Handle validation errors (400)
+    if (err?.response?.status === 400 && err?.response?.data?.errors) {
+      const errors = err.response.data.errors;
+      const errorMessages = Object.entries(errors)
+        .map(([field, message]) => `${field}: ${message}`)
+        .join('\n');
+      
+      toast({
+        title: "Validation Error",
+        description: errorMessages || "Please check all required fields.",
+        variant: "destructive",
+      });
+      
+      console.error('❌ Validation errors:', errors);
+    } 
+    // Handle other errors
+    else {
       const msg =
         err?.response?.data?.message ||
         err?.response?.data?.error ||
+        err?.message ||
         "Failed to create employee.";
-      toast({ title: "Error", description: msg });
-    } finally {
-      setCreateSubmitting(false);
+      
+      toast({ 
+        title: "Error", 
+        description: msg,
+        variant: "destructive",
+      });
     }
-  };
+  } finally {
+    setCreateSubmitting(false);
+  }
+};
+
   // Helper component for nested fields (address, bankDetails, emergencyContact)
   const InputField = ({ label, field, obj }) => (
     <div>
@@ -427,7 +522,7 @@ export default function OnboardingPage() {
                     }
                   />
                 </div>
-                <div>
+                <div className="space-y-2">
                   <Label>Password *</Label>
                   <Input
                     type="password"
@@ -436,8 +531,53 @@ export default function OnboardingPage() {
                     onChange={(e) =>
                       setCreateForm((s) => ({ ...s, password: e.target.value }))
                     }
+                    className={
+                      createForm.password.length > 0 && createForm.password.length < 8
+                        ? 'border-red-500 focus:ring-red-500'
+                        : createForm.password.length >= 8
+                        ? 'border-green-500 focus:ring-green-500'
+                        : ''
+                    }
+                    placeholder="Enter password (min 8 characters)"
                   />
+                  
+                  {/* Password Strength Indicator */}
+                  {createForm.password.length > 0 && (
+                    <div className="space-y-1">
+                      {/* Progress Bar */}
+                      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full transition-all duration-300 ${getPasswordStrength(createForm.password).color}`}
+                          style={{ width: getPasswordStrength(createForm.password).width }}
+                        />
+                      </div>
+                      
+                      {/* Strength Label */}
+                      <div className="flex items-center justify-between">
+                        <p className={`text-sm font-medium ${getPasswordStrength(createForm.password).textColor}`}>
+                          {getPasswordStrength(createForm.password).label}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {createForm.password.length}/120 characters
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Validation Message */}
+                  {createForm.password.length > 0 && createForm.password.length < 8 && (
+                    <p className="text-red-600 text-sm flex items-center gap-1">
+                      ❌ Password must be at least 8 characters
+                    </p>
+                  )}
+                  
+                  {createForm.password.length >= 8 && (
+                    <p className="text-green-600 text-sm flex items-center gap-1">
+                      ✓ Valid password
+                    </p>
+                  )}
                 </div>
+
                 <div>
                   <Label>Role *</Label>
                   <select
