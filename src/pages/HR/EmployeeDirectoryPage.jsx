@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/ta
 import apiClient from '../../lib/apiClient';
 import { toast } from '../../hooks/use-toast';
 import { Toaster } from '../../components/ui/toaster';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 
 const api = apiClient;
 
@@ -282,13 +283,11 @@ const EmployeeDirectoryPage = () => {
               >
                 <CardContent className="p-6">
                   <div className="flex flex-col items-center text-center space-y-4">
-                    <Avatar className="w-20 h-20">
-                      <AvatarImage src={undefined} />
-                      <AvatarFallback className="bg-blue-600 text-white text-xl">
-                        {getInitials(fullName)}
-                      </AvatarFallback>
-                    </Avatar>
-                    
+                    <ProfileAvatar 
+                      empId={employee.empId} 
+                      firstName={employee.firstName}
+                      size="md"
+                    />
                     <div className="space-y-1 w-full">
                       <h3 className="font-semibold text-lg text-gray-900 truncate">
                         {fullName}
