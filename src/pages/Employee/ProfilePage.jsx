@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   User, Mail, Phone, MapPin, Calendar, Building, Edit, 
   CreditCard, AlertCircle, Heart, Briefcase, DollarSign,
-  Shield, Home, Users
+  Shield, Home, Users, Camera, Trash2, Upload, EyeClosed, Eye
 } from 'lucide-react';
+import { motion } from "framer-motion";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/avatar';
 import { Button } from '../../components/ui/button';
@@ -32,10 +34,22 @@ const ProfilePage = () => {
   const [loading, setLoading] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editData, setEditData] = useState({});
+  const [profileImgUrl, setProfileImgUrl] = useState('');
+  const [imageError, setImageError] = useState(false);
+  const [imgUploading, setImgUploading] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [showFullAccount, setShowFullAccount] = useState(false);
+  
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     loadEmployeeData();
+    // eslint-disable-next-line
   }, []);
+
+  useEffect(() => {
+    if (user?.empId && !imageError) fetchProfileImage();
+  }, [user,imageError]);
 
   const loadEmployeeData = async () => {
     try {
@@ -52,6 +66,115 @@ const ProfilePage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // robust image existence check
+const fetchProfileImage = async () => {
+  if (!user?.empId) return;
+
+  setImageError(false);
+  setImgUploading(false);
+
+  try {
+    // Use a GET to allow some servers that deny HEAD; avoid cors issues on other domains
+    const res = await fetch(`/api/employees/empid/${user.empId}/profile-image`, {
+      method: 'GET',
+      // don't include credentials unless needed
+      // credentials: 'include'
+    });
+
+    // if not ok, treat as no image
+    if (!res.ok) {
+      setProfileImgUrl(null);
+      setImageError(true);
+      return;
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    // ensure response is an image
+    if (!contentType.startsWith('image/')) {
+      // server returned html or json instead of an image
+      setProfileImgUrl(null);
+      setImageError(true);
+      return;
+    }
+
+    // If we reached here the endpoint returned an image; append timestamp to bust cache
+    setImageError(false);
+    setProfileImgUrl(`/api/employees/empid/${user.empId}/profile-image?ts=${Date.now()}`);
+  } catch (err) {
+    // network or CORS error — fallback
+    console.error('Profile image check failed:', err);
+    setProfileImgUrl(null);
+    setImageError(true);
+  }
+};
+
+const handleImageError = () => {
+  // mark as error and clear url so fallback renders
+  setImageError(true);
+  setProfileImgUrl(null);
+};
+
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({ title: 'Please select a valid image file', variant: 'destructive' });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: 'Image size should be less than 5MB', variant: 'destructive' });
+      return;
+    }
+
+    setImgUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      await api.post(`/employees/empid/${user.empId}/profile-image`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      
+      toast({ title: 'Profile picture updated successfully!' });
+      setImageError(false);
+      fetchProfileImage();
+    } catch (err) {
+      toast({ 
+        title: 'Failed to upload image', 
+        description: err.response?.data?.message || 'Please try again',
+        variant: 'destructive' 
+      });
+    } finally {
+      setImgUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleImageDelete = async () => {
+    try {
+      await api.delete(`/employees/empid/${user.empId}/profile-image`);
+      toast({ title: 'Profile picture deleted successfully!' });
+      setProfileImgUrl('');
+      setImageError(true);
+      setDeleteConfirmOpen(false);
+    } catch (err) {
+      toast({ 
+        title: 'Failed to delete image', 
+        description: err.response?.data?.message || 'Please try again',
+        variant: 'destructive' 
+      });
+    }
+  };
+
+  const handleAvatarClick = () => {
+    if (fileInputRef.current && !imgUploading) fileInputRef.current.click();
   };
 
   const handleUpdate = async (e) => {
@@ -105,6 +228,8 @@ const ProfilePage = () => {
     (new Date() - new Date(employeeData.createdAt)) / (1000 * 60 * 60 * 24 * 365)
   );
 
+  const hasProfileImage = !!profileImgUrl && !imageError && !imgUploading;
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header with Edit Button */}
@@ -113,7 +238,7 @@ const ProfilePage = () => {
           <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
           <p className="text-gray-600 mt-1">View and manage your personal information</p>
         </div>
-        <Button className="text-white" onClick={() => setEditDialogOpen(true)}>
+        <Button className="text-black bg-blue-500 hover:bg-blue-600" onClick={() => setEditDialogOpen(true)}>
           <Edit className="w-4 h-4 mr-2 text-white" />
           Edit Profile
         </Button>
@@ -123,12 +248,77 @@ const ProfilePage = () => {
       <Card className="border-2">
         <CardContent className="p-8">
           <div className="flex flex-col md:flex-row items-center md:items-start space-y-4 md:space-y-0 md:space-x-6">
-            <Avatar className="w-32 h-32 border-4 border-white shadow-xl ring-4 ring-blue-50">
-              <AvatarImage src={undefined} />
-              <AvatarFallback className="bg-linear-to-br from-blue-600 to-blue-700 text-white text-4xl">
-                {getInitials(employeeData.firstName, employeeData.lastName)}
-              </AvatarFallback>
-            </Avatar>
+            {/* Avatar with Upload/Edit/Delete */}
+            <motion.div
+              whileHover={{ scale: 1.05, boxShadow: '0 8px 32px rgba(37,99,235,.19)' }}
+              className="relative w-32 h-32 group cursor-pointer rounded-full"
+              role="button"
+              tabIndex={0}
+              aria-label={hasProfileImage ? "Edit or delete profile picture" : "Upload profile picture"}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={handleImageUpload}
+                disabled={imgUploading}
+              />
+              <Avatar className="w-32 h-32 border-4 border-white shadow-xl ring-4 ring-blue-50 rounded-full">
+                {profileImgUrl && !imgUploading && !imageError ? (
+                  <AvatarImage
+                    src={profileImgUrl}
+                    alt="Profile"
+                    onError={handleImageError}
+                    className="rounded-full w-full h-full object-cover"
+                  />
+                ) : (   
+                  <AvatarFallback className="bg-linear-to-br! from-blue-600! to-blue-700! text-white! text-4xl flex items-center justify-center rounded-full w-full h-full">
+                    {employeeData?.firstName?.[0]?.toUpperCase() || "U"}
+                  </AvatarFallback>
+                )}
+              </Avatar>
+              {/* Overlay: Show different actions based on whether image exists */}
+              {!imgUploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+                  {hasProfileImage ? (
+                    // Edit and Delete buttons when image exists
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={handleAvatarClick}
+                        className="p-2 bg-white rounded-full hover:bg-gray-100 transition-colors shadow-lg"
+                        title="Change picture"
+                      >
+                        <Edit className="w-5 h-5 text-blue-600" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirmOpen(true)}
+                        className="p-2 bg-white rounded-full hover:bg-gray-100 transition-colors shadow-lg"
+                        title="Delete picture"
+                      >
+                        <Trash2 className="w-5 h-5 text-red-600" />
+                      </button>
+                    </div>
+                  ) : (
+                    // Upload icon when no image
+                    <div onClick={handleAvatarClick}>
+                      <Camera className="w-10 h-10 text-white drop-shadow-lg" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Uploading overlay */}
+              {imgUploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-xs font-semibold rounded-full">
+                  <div className="text-center">
+                    <Upload className="w-6 h-6 animate-bounce mx-auto mb-1" />
+                    <span>Uploading...</span>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+
             <div className="flex-1 text-center md:text-left">
               <div className="flex items-center justify-center md:justify-start gap-3 mb-2">
                 <h2 className="text-3xl font-bold text-gray-900">{fullName}</h2>
@@ -164,7 +354,7 @@ const ProfilePage = () => {
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="bg-linear-to-brrom-blue-50 to-blue-100 border-blue-200">
+        <Card className="bg-linear-to-br from-blue-50 to-blue-100 border-blue-200">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -178,13 +368,13 @@ const ProfilePage = () => {
           </CardContent>
         </Card>
 
-        <Card className="bg-linear-to-br from-green-50 to-green-100 border-green-200">
+        <Card className="bg-linear-to-brrom-green-50 to-green-100 border-green-200">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-green-700 font-medium mb-1">Annual CTC</p>
                 <p className="text-3xl font-bold text-green-900">
-                  ₹{employeeData.salary.toLocaleString('en-IN')}
+                  ₹{employeeData.salary?.toLocaleString('en-IN') || 'N/A'}
                 </p>
               </div>
               <div className="w-12 h-12 bg-green-200 rounded-lg flex items-center justify-center">
@@ -342,44 +532,67 @@ const ProfilePage = () => {
         </TabsContent>
 
         {/* Bank Details Tab */}
-        <TabsContent value="bank">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <CreditCard className="w-5 h-5 mr-2 text-green-600" />
-                Bank Account Details
-              </CardTitle>
-              <CardDescription>Your banking information for salary payments</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <InfoItem 
-                  icon={<CreditCard className="w-5 h-5 text-gray-400" />}
-                  label="Account Number"
-                  value={`XXXX XXXX ${String(employeeData.bankDetails?.bankAccount || '').slice(-4)}`}
-                  sensitive
-                />
-                <InfoItem 
-                  icon={<Building className="w-5 h-5 text-gray-400" />}
-                  label="Bank Name"
-                  value={employeeData.bankDetails?.bankName}
-                />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <InfoItem 
-                    icon={<Building className="w-5 h-5 text-gray-400" />}
-                    label="Branch Name"
-                    value={employeeData.bankDetails?.branchName}
-                  />
-                  <InfoItem 
-                    icon={<CreditCard className="w-5 h-5 text-gray-400" />}
-                    label="IFSC Code"
-                    value={employeeData.bankDetails?.ifscCode}
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+<TabsContent value="bank">
+  <Card>
+    <CardHeader>
+      <CardTitle className="flex items-center">
+        <CreditCard className="w-5 h-5 mr-2 text-green-600" />
+        Bank Account Details
+      </CardTitle>
+      <CardDescription>Your banking information for salary payments</CardDescription>
+    </CardHeader>
+    <CardContent>
+      <div className="space-y-4">
+        {/* Account Number with Eye Button */}
+        <div className="relative border-l-4 border-[#0adede] pl-4 py-2 overflow-hidden group cursor-default">
+          {/* Animated highlight background */}
+          <div className="absolute inset-0 bg-[#d0ebc5] transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300 ease-out"></div>
+          
+          {/* Content */}
+          <div className="relative z-10">
+            <p className="text-xs text-gray-500 mb-1 uppercase tracking-wider font-medium">Account Number</p>
+            <div className="flex items-center gap-3">
+              <p className="text-base font-bold text-black font-mono">
+                {showFullAccount 
+                  ? employeeData.bankDetails?.bankAccount || 'Not specified'
+                  : `XXXX XXXX ${String(employeeData.bankDetails?.bankAccount || '').slice(-4)}`
+                }
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowFullAccount(!showFullAccount)}
+                className="p-2 hover: rounded-full transition-colors"
+                title={showFullAccount ? 'Hide account number' : 'Show account number'}
+              >
+                {showFullAccount ? (
+                  <Eye className="w-5 h-5 text-gray-600" />
+                ) : (
+                  <EyeClosed className="w-5 h-5 text-gray-600" />
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <InfoItem 
+          label="Bank Name"
+          value={employeeData.bankDetails?.bankName}
+        />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <InfoItem 
+            label="Branch Name"
+            value={employeeData.bankDetails?.branchName}
+          />
+          <InfoItem 
+            label="IFSC Code"
+            value={employeeData.bankDetails?.ifscCode}
+          />
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+</TabsContent>
+
 
         {/* Emergency Contact Tab */}
         <TabsContent value="emergency">
@@ -413,6 +626,33 @@ const ProfilePage = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-600" />
+              Delete Profile Picture
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete your profile picture? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleImageDelete} 
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
@@ -524,12 +764,15 @@ const ProfilePage = () => {
 };
 
 // Helper Component for displaying information
-const InfoItem = ({ icon, label, value, sensitive = false }) => (
-  <div className="flex items-start space-x-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-    <div className="mt-0.5">{icon}</div>
-    <div className="flex-1">
-      <p className="text-sm text-gray-600 mb-1">{label}</p>
-      <p className={`font-medium text-gray-900 ${sensitive ? 'font-mono' : ''}`}>
+const InfoItem = ({ label, value, sensitive = false }) => (
+  <div className="relative border-l-4 border-[#0adede] pl-4 py-2 overflow-hidden group cursor-default">
+    {/* Animated highlight background */}
+    <div className="absolute inset-0 bg-[#d0ebc5] transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300 ease-out"></div>
+    
+    {/* Content */}
+    <div className="relative z-10">
+      <p className="text-xs text-gray-500 mb-1 uppercase tracking-wider font-medium">{label}</p>
+      <p className={`text-base font-bold text-black ${sensitive ? 'font-mono' : ''}`}>
         {value || 'Not specified'}
       </p>
     </div>

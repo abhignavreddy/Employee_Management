@@ -47,6 +47,7 @@ import TopPerformersPage from "./pages/CEO/TopPerformersPage";
 import TaskAnalyticsPage from "./pages/CEO/TaskAnalyticsPage";
 import ProfilePage from "./pages/Employee/ProfilePage.jsx";
 import ManagerBoard from "./pages/Manager/ManagerBoard.jsx";
+import ErrorBoundary from "./ErrorBoundary.jsx";
 
 
 // Placeholder Page
@@ -345,9 +346,11 @@ function App() {
               path="/profile"
               element={
                 <ProtectedRoute allowedRoles={["Employee", "HR", "Manager"]}>
+                  <ErrorBoundary>
                   <AppShell>
                     <ProfilePage />
                   </AppShell>
+                  </ErrorBoundary>
                 </ProtectedRoute>
               }
             />

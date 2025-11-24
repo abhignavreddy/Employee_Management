@@ -19,6 +19,7 @@ import {
 } from '../ui/dropdown-menu';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { ProfileAvatar } from '../ProfileAvatar';
 
 const Header = () => {
   const { user, logout } = useAuth();
@@ -172,12 +173,11 @@ const Header = () => {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center space-x-2 pl-4 border-l border-gray-200 hover:bg-gray-50 rounded-lg p-2 transition-colors">
-              <Avatar className="w-8 h-8">
-                <AvatarImage src={user?.profilePicture} />
-                <AvatarFallback className="bg-blue-600 text-white text-sm">
-                  {getInitials(user?.firstName, user?.lastName)}
-                </AvatarFallback>
-              </Avatar>
+              <ProfileAvatar 
+                empId={user?.empId} 
+                firstName={user?.firstName}
+                size="sm"
+              />
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-900">
                   {fullName}

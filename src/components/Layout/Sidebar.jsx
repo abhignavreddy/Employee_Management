@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Button } from "../ui/button";
+import { useProfileImage } from '../../hooks/useProfileImage';
 
 // ---------- Menu Configuration ----------
 const menuConfig = {
@@ -66,6 +67,7 @@ const menuConfig = {
     { path: "/profile", label: "Profile", icon: Users },
   ],
 };
+
 
 // ---------- Expandable Subsection ----------
 function ExpandableSection({ title, projects, collapsed, location }) {
@@ -187,6 +189,9 @@ const Sidebar = () => {
 
   const hideSpaces = user?.role === "HR";
 
+
+  const { profileImgUrl, imageError, loading, handleImageError } = useProfileImage(user?.empId);
+
   return (
     <div
       className={`h-screen bg-linear-to-b from-slate-900 to-slate-800 text-white flex flex-col transition-all duration-300 ${
@@ -223,10 +228,17 @@ const Sidebar = () => {
           className={`flex items-center ${collapsed ? "justify-center" : "space-x-3"}`}
         >
           <Avatar className="w-10 h-10">
-            <AvatarImage src={user?.avatar} />
-            <AvatarFallback className="bg-blue-600">
-              {getInitials(user?.name || "U")}
-            </AvatarFallback>
+            {profileImgUrl && !imageError ? (
+              <AvatarImage 
+                src={profileImgUrl} 
+                alt="Profile" 
+                onError={handleImageError}
+              />
+            ) : (
+              <AvatarFallback className="bg-black text-white">
+                {user?.firstName?.[0]?.toUpperCase() || "U"}
+              </AvatarFallback>
+                )}
           </Avatar>
           {!collapsed && (
             <div className="flex-1 min-w-0">

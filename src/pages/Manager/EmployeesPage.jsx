@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Eye, Mail, Phone, MapPin, Calendar } from 'lucide-react';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '../../components/ui/select';
 import apiClient from '../../lib/apiClient';
-
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 // Backend API
 const api = apiClient;
 
@@ -62,6 +62,7 @@ export default function EmployeesPage() {
 
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+
 
   const load = async (p = page) => {
     setLoading(true);
@@ -218,12 +219,15 @@ export default function EmployeesPage() {
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center space-x-3">
-                    <Avatar className="w-12 h-12">
-                      <AvatarImage src={undefined} />
+                    <ProfileAvatar 
+                      empId={employee.empId} 
+                      firstName={employee.firstName}
+                      size="md"
+                    >
                       <AvatarFallback className="bg-blue-600 text-white">
                         {initials}
                       </AvatarFallback>
-                    </Avatar>
+                    </ProfileAvatar>
                     <div>
                       <h3 className="font-semibold text-gray-900">{name}</h3>
                       <p className="text-sm text-gray-500">{empId}</p>
@@ -280,12 +284,11 @@ export default function EmployeesPage() {
             {selectedEmployee && (
               <div className="space-y-6">
                 <div className="flex items-center space-x-4 pb-4 border-b">
-                  <Avatar className="w-20 h-20">
-                    <AvatarImage src={undefined} />
-                    <AvatarFallback className="bg-blue-600 text-white text-2xl">
-                      {getInitials(selectedEmployee.name)}
-                    </AvatarFallback>
-                  </Avatar>
+                    <ProfileAvatar 
+                      empId={selectedEmployee.empId} 
+                      firstName={selectedEmployee.firstName}
+                      size="md"
+                    />
                   <div className="flex-1">
                     <h3 className="text-2xl font-bold text-gray-900">
                       {selectedEmployee.name}
