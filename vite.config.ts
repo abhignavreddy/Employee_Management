@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': {
           // Use environment variable for proxy target, fallback to default
-          target: env.VITE_API_BASE_URL?.replace('/api', '') || 'https://tconsolutions-64307221061.asia-south1.run.app',
+          target: env.VITE_API_BASE_URL?.replace('/api', '') || 'https://localhost:8080/api',
           changeOrigin: true,
           secure: false,
           // The proxy will forward /api requests to the target

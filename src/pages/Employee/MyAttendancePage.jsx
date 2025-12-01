@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useMemo } from "react";
 import axios from "axios";
 import { jsPDF } from "jspdf";
@@ -18,13 +17,20 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
 // API Config
-const api = axios.create({ baseURL: "/", headers: { "Content-Type": "application/json" } });
+const api = axios.create({ 
+  baseURL: "/", 
+  headers: { "Content-Type": "application/json" },
+  timeout: 10000 // 10 second timeout
+});
 
 const AttendanceAPI = {
   getByEmpId: (empId) => api.get(`/api/attendance/employee/${empId}`).then((r) => r.data),
   checkIn: (payload) => api.post("/api/attendance/checkin", payload).then((r) => r.data),
   deleteRecord: (id) => api.delete(`/api/attendance/${id}`).then((r) => r.data),
-  checkOut: (id) => api.patch(`/api/attendance/checkout/${id}`, { checkOut: new Date().toISOString(), status: "Present" }).then((r) => r.data),
+  checkOut: (id) => api.patch(`/api/attendance/checkout/${id}`, { 
+    checkOut: new Date().toISOString(), 
+    status: "Present" 
+  }).then((r) => r.data),
 };
 
 export default function MyAttendancePage() {
@@ -33,11 +39,11 @@ export default function MyAttendancePage() {
   const [workMode, setWorkMode] = useState("Office");
   const [todayRecord, setTodayRecord] = useState(null);
   const [isOnLeaveToday, setIsOnLeaveToday] = useState(false);
-  const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [todayHoliday, setTodayHoliday] = useState(null);
   const [leaves, setLeaves] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   // Helper functions for consistent IST date/time formatting
   const displayTime = (timeString) => {
@@ -53,71 +59,70 @@ export default function MyAttendancePage() {
     return new Date(dateString).toLocaleDateString("en-IN");
   };
 
-  // Load attendance and leave data
+  // Load attendance and leave data - FIXED VERSION
   const load = async () => {
     if (!user?.empId) return;
 
+    setLoading(true);
     try {
-      // Ensure holiday list for this year is loaded (Google Calendar or fallback)
+      // Ensure holiday list for this year is loaded
       await ensureHolidays(new Date().getFullYear());
 
-      const data = await AttendanceAPI.getByEmpId(user.empId);
+      // Fetch both attendance and leave data in parallel
+      const [attendanceData, leaveResponse] = await Promise.all([
+        AttendanceAPI.getByEmpId(user.empId),
+        api.get(`/api/leave-approvel/employee/${user.empId}`).catch(err => {
+          console.error("Failed to load leave data:", err);
+          return { data: [] };
+        })
+      ]);
 
-      // Fetch leave requests
-      let fetchedLeaves = [];
-      try {
-        const leaveRes = await api.get(`/api/leave-approvel/employee/${user.empId}`);
-        fetchedLeaves = leaveRes.data || [];
-        console.log("📋 Fetched Leave Requests:", fetchedLeaves);
-      } catch (err) {
-        console.error("Failed to load leave data:", err);
-        fetchedLeaves = [];
-      }
+      const fetchedLeaves = leaveResponse.data || [];
+      console.log("📋 Fetched Leave Requests:", fetchedLeaves);
 
       const today = new Date().toISOString().split("T")[0];
 
-      // Check if employee is on leave today (boolean) - ONLY for APPROVED leaves
+      // Check if employee is on leave today - ONLY for APPROVED leaves
       const onLeaveToday = fetchedLeaves.some((l) => {
         const status = l.status?.toUpperCase() || "";
         console.log("🔍 Checking leave:", {
           fromDate: l.fromDate,
           toDate: l.toDate,
           status: status,
-          originalStatus: l.status,
           isApproved: status === "APPROVED"
         });
         
         if (status !== "APPROVED") {
-          console.log("❌ Leave not approved, skipping:", l);
           return false;
         }
         
         const fromDate = new Date(l.fromDate).toISOString().split("T")[0];
         const toDate = new Date(l.toDate).toISOString().split("T")[0];
-        
         const isInRange = today >= fromDate && today <= toDate;
-        console.log("📅 Date check:", { today, fromDate, toDate, isInRange });
         
+        console.log("📅 Date check:", { today, fromDate, toDate, isInRange });
         return isInRange;
       });
-      setIsOnLeaveToday(onLeaveToday);
-      setLeaves(fetchedLeaves);
-      
+
       console.log("✅ Final Leave Status - Today:", today, "On Leave:", onLeaveToday);
+
+      // Set leave states
+      setLeaves(fetchedLeaves);
+      setIsOnLeaveToday(onLeaveToday);
 
       // Check if today is a public holiday
       const holiday = getHolidayByDate(today);
       setTodayHoliday(holiday);
 
-      // Map attendance records: reflect approved leave, otherwise revert previous leave markers intelligently
+      // Map attendance records with leave status
       const todayDateObj = new Date(today);
-      const updatedRecords = data.map(r => {
+      const updatedRecords = attendanceData.map(r => {
         if (!r.date) return r;
         const recordDateObj = new Date(r.date);
         const recordDateStr = recordDateObj.toISOString().split("T")[0];
 
         // Determine if this date is covered by an APPROVED leave
-        const hasApprovedLeave = leaves.some(l => {
+        const hasApprovedLeave = fetchedLeaves.some(l => {
           const status = l.status?.toUpperCase();
           if (status !== "APPROVED") return false;
           const fromStr = new Date(l.fromDate).toISOString().split("T")[0];
@@ -129,62 +134,67 @@ export default function MyAttendancePage() {
         if (hasApprovedLeave) {
           finalStatus = "Leave";
         } else if (finalStatus === "Leave" || finalStatus === "OnLeave") {
-          // Previously marked as leave but leave was revoked/rejected.
+          // Previously marked as leave but leave was revoked/rejected
           if (r.checkIn) {
-            finalStatus = "Present"; // user actually checked in later
+            finalStatus = "Present";
           } else if (recordDateObj < todayDateObj) {
-            // Past day with no check in -> Absent
             finalStatus = "Absent";
           } else {
-            // Today or future: show blank placeholder instead of Absent
-            finalStatus = "—"; // will render as hyphen
+            finalStatus = "—";
           }
         }
         return { ...r, status: finalStatus };
       });
 
-      console.log("📊 Updated Records with Leave Status (employee page):", updatedRecords);
+      console.log("📊 Updated Records with Leave Status:", updatedRecords);
 
       // Filter out rows with hyphen status (rejected leaves)
       const filteredRecords = updatedRecords.filter(r => r.status !== "—");
       setRecords(filteredRecords);
 
-      // Optional: set today's record for check-in/out buttons logic
+      // Set today's record
       const todayRec = updatedRecords.find(r => r.date === today);
       setTodayRecord(todayRec || null);
       
       console.log("📌 Today's Record:", todayRec);
-      console.log("📌 Can Check In:", !isOnLeaveToday && !todayHoliday && (!todayRec || (!todayRec.checkIn && !todayRec.checkOut)));
-      console.log("📌 Can Check Out:", !isOnLeaveToday && !todayHoliday && todayRec && todayRec.checkIn && !todayRec.checkOut);
+      console.log("📌 Can Check In:", !onLeaveToday && !holiday && (!todayRec || (!todayRec.checkIn && !todayRec.checkOut)));
+      console.log("📌 Can Check Out:", !onLeaveToday && !holiday && todayRec && todayRec.checkIn && !todayRec.checkOut);
 
     } catch (err) {
-      console.error(err);
+      console.error("Error loading attendance data:", err);
+      alert("Failed to load attendance data. Please refresh the page.");
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     load();
     
-    // Refresh when window gains focus (user comes back to tab)
+    // Auto-refresh every 30 seconds to catch updates
+    const interval = setInterval(() => {
+      load();
+    }, 30000);
+    
+    // Refresh when window gains focus
     const handleFocus = () => load();
     window.addEventListener('focus', handleFocus);
     
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [user]);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user?.empId]);
 
-  const onLeaveRequestSubmitted = () => {
-    load(); // Refresh attendance and leave data on leave submission
-  };
-
-  // Check-In / Check-Out buttons enable/disable conditions
-  const canCheckIn = !isOnLeaveToday && !todayHoliday && (!todayRecord || (!todayRecord.checkIn && !todayRecord.checkOut));
-  const canCheckOut = !isOnLeaveToday && !todayHoliday && todayRecord && todayRecord.checkIn && !todayRecord.checkOut;
-
+  // Check-In handler - FIXED VERSION
   const handleCheckIn = async () => {
-    if (isOnLeaveToday) return alert("Check-in disabled: You are on approved leave today.");
-    if (todayHoliday) return alert(`Check-in disabled: Public holiday — ${todayHoliday.name}`);
-    
-    // Check if already checked in today
+    // Re-check current state values
+    if (isOnLeaveToday) {
+      return alert("Check-in disabled: You are on approved leave today.");
+    }
+    if (todayHoliday) {
+      return alert(`Check-in disabled: Public holiday — ${todayHoliday.name}`);
+    }
     if (todayRecord && todayRecord.checkIn) {
       return alert("You have already checked in today!");
     }
@@ -198,6 +208,7 @@ export default function MyAttendancePage() {
       todayHoliday 
     });
     
+    setLoading(true);
     try {
       const now = new Date();
       const payload = {
@@ -212,61 +223,86 @@ export default function MyAttendancePage() {
       
       console.log("📤 Sending check-in payload:", payload);
       
-      let response;
-      // If today's record exists with status "Absent" (due to rejected leave), DELETE it first
+      // If today's record exists with status "Absent", delete it first
       if (todayRecord && todayRecord.id && !todayRecord.checkIn) {
         console.log("🗑️ Deleting old Absent record:", todayRecord.id);
         try {
           await AttendanceAPI.deleteRecord(todayRecord.id);
           console.log("✅ Old record deleted");
         } catch (delErr) {
-          console.warn("⚠️ Could not delete old record, will try to create new one anyway");
+          console.warn("⚠️ Could not delete old record:", delErr);
         }
       }
       
-      // Now CREATE a new record
+      // Create new check-in record
       console.log("➕ Creating new check-in record");
-      response = await AttendanceAPI.checkIn(payload);
-      
+      const response = await AttendanceAPI.checkIn(payload);
       console.log("✅ Check-in response:", response);
       
       alert("Checked in successfully!");
-      load();
+      
+      // Reload data after successful check-in
+      await load();
     } catch (err) {
       console.error("❌ Check-in error:", err);
       console.error("❌ Error response:", err.response?.data);
-      console.error("❌ Full error object:", JSON.stringify(err.response, null, 2));
       
       const errorMsg = err.response?.data?.message || err.response?.data?.error || err.message || "Check-in failed";
       alert(`Check-in failed: ${errorMsg}`);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Check-Out handler - FIXED VERSION
   const handleCheckOut = async () => {
-    if (isOnLeaveToday) return alert("Check-out disabled: You are on approved leave today.");
-    if (todayHoliday) return alert(`Check-out disabled: Public holiday — ${todayHoliday.name}`);
-    if (!todayRecord) return alert("No check-in found for today.");
+    if (isOnLeaveToday) {
+      return alert("Check-out disabled: You are on approved leave today.");
+    }
+    if (todayHoliday) {
+      return alert(`Check-out disabled: Public holiday — ${todayHoliday.name}`);
+    }
+    if (!todayRecord || !todayRecord.id) {
+      return alert("No check-in found for today.");
+    }
+    if (todayRecord.checkOut) {
+      return alert("You have already checked out today!");
+    }
     
     console.log("🔴 Attempting check-out...", { recordId: todayRecord.id, empId: user.empId });
     
+    setLoading(true);
     try {
       console.log("📤 Sending check-out request for record ID:", todayRecord.id);
       const response = await AttendanceAPI.checkOut(todayRecord.id);
       console.log("✅ Check-out response:", response);
       
       alert("Checked out successfully!");
-      load();
+      
+      // Reload data after successful check-out
+      await load();
     } catch (err) {
       console.error("❌ Check-out error:", err);
       console.error("❌ Error response:", err.response?.data);
-      alert(err.response?.data?.message || err.message || "Check-out failed");
+      
+      const errorMsg = err.response?.data?.message || err.message || "Check-out failed";
+      alert(`Check-out failed: ${errorMsg}`);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Sort records by date descending for table display
-  const sortedRecords = useMemo(() => [...records].sort((a, b) => new Date(b.date) - new Date(a.date)), [records]);
+  // Check-In / Check-Out button enable/disable conditions
+  const canCheckIn = !isOnLeaveToday && !todayHoliday && (!todayRecord || (!todayRecord.checkIn && !todayRecord.checkOut));
+  const canCheckOut = !isOnLeaveToday && !todayHoliday && todayRecord && todayRecord.checkIn && !todayRecord.checkOut;
 
-  // Employee summary (present days, leave days, attendance rate, total hours)
+  // Sort records by date descending
+  const sortedRecords = useMemo(() => 
+    [...records].sort((a, b) => new Date(b.date) - new Date(a.date)), 
+    [records]
+  );
+
+  // Employee summary
   const summary = useMemo(() => {
     const total = records.length;
     const present = records.filter((r) => r.status === "Present").length;
@@ -274,7 +310,7 @@ export default function MyAttendancePage() {
     const absent = records.filter((r) => r.status === "Absent").length;
     const rate = total ? Math.round((present / total) * 100) : 0;
 
-    // Total hours (sum of checkIn/checkOut durations)
+    // Total hours calculation
     let totalMinutes = 0;
     records.forEach((r) => {
       if (r.checkIn && r.checkOut) {
@@ -282,7 +318,6 @@ export default function MyAttendancePage() {
         const mins = Math.floor(diffMs / (1000 * 60));
         if (!Number.isNaN(mins) && mins > 0) totalMinutes += mins;
       } else if (r.workHours !== undefined && r.workHours !== null) {
-        // workHours might be a fractional hour number
         const mins = Math.round(r.workHours * 60);
         if (!Number.isNaN(mins) && mins > 0) totalMinutes += mins;
       }
@@ -294,20 +329,25 @@ export default function MyAttendancePage() {
     return { total, present, leave, absent, rate, totalHoursDisplay };
   }, [records]);
 
-  // CSV / PDF Download functions with IST formatting
+  // CSV Download
   const downloadCSV = () => {
     if (!sortedRecords.length) return alert("No records to download");
     const rows = sortedRecords.map(r => {
       const checkIn = r.checkIn ? displayTime(r.checkIn) : "-";
       const checkOut = r.checkOut ? displayTime(r.checkOut) : "-";
-      const workHours = r.checkIn && r.checkOut ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2) : 0;
+      const workHours = r.checkIn && r.checkOut ? 
+        ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2) : 0;
       return [displayDate(r.date), checkIn, checkOut, workHours, r.status, r.workMode || "-"].join(",");
     });
     const csvContent = "Date,Check In,Check Out,Hours,Status,Work Mode\n" + rows.join("\n");
     const blob = new Blob([csvContent], { type: "text/csv" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "Attendance.csv"; a.click();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "Attendance.csv";
+    a.click();
   };
 
+  // PDF Download
   const downloadPDF = () => {
     if (!sortedRecords.length) return alert("No records to download");
     const doc = new jsPDF();
@@ -315,10 +355,15 @@ export default function MyAttendancePage() {
     const tableData = sortedRecords.map(r => {
       const checkIn = r.checkIn ? displayTime(r.checkIn) : "-";
       const checkOut = r.checkOut ? displayTime(r.checkOut) : "-";
-      const workHours = r.checkIn && r.checkOut ? ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2) : 0;
+      const workHours = r.checkIn && r.checkOut ? 
+        ((new Date(r.checkOut) - new Date(r.checkIn)) / (1000 * 60 * 60)).toFixed(2) : 0;
       return [displayDate(r.date), checkIn, checkOut, workHours, r.status, r.workMode || "-"];
     });
-    autoTable(doc, { head: [["Date", "Check In", "Check Out", "Hours", "Status", "Mode"]], body: tableData, startY: 30 });
+    autoTable(doc, { 
+      head: [["Date", "Check In", "Check Out", "Hours", "Status", "Mode"]], 
+      body: tableData, 
+      startY: 30 
+    });
     doc.save("Attendance.pdf");
   };
 
@@ -339,7 +384,11 @@ export default function MyAttendancePage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">My Attendance</h1>
         </div>
-        <Button onClick={() => setIsLeaveModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
+        <Button 
+          onClick={() => setIsLeaveModalOpen(true)} 
+          className="bg-blue-600 hover:bg-blue-700 text-white"
+          disabled={loading}
+        >
           <Plus className="w-4 h-4 mr-2" /> Request Leave
         </Button>
       </div>
@@ -402,8 +451,10 @@ export default function MyAttendancePage() {
 
       {/* CHECK-IN / CHECK-OUT */}
       <div className="flex items-center gap-3 mt-2">
-        <Select value={workMode} onValueChange={setWorkMode}>
-          <SelectTrigger className="w-[130px] bg-gray-50"><SelectValue placeholder="Work Mode" /></SelectTrigger>
+        <Select value={workMode} onValueChange={setWorkMode} disabled={loading}>
+          <SelectTrigger className="w-[130px] bg-gray-50">
+            <SelectValue placeholder="Work Mode" />
+          </SelectTrigger>
           <SelectContent className="bg-gray-50">
             <SelectItem value="Office">
               <div className="flex items-center space-x-2">
@@ -419,11 +470,23 @@ export default function MyAttendancePage() {
             </SelectItem>
           </SelectContent>
         </Select>
-        <Button onClick={handleCheckIn} disabled={!canCheckIn} className={`text-white ${canCheckIn ? "bg-green-600 hover:bg-green-700" : "bg-gray-400"}`}>
-          <LogIn className="w-4 h-4 mr-1" />Check In
+        
+        <Button 
+          onClick={handleCheckIn} 
+          disabled={!canCheckIn || loading} 
+          className={`text-white ${canCheckIn && !loading ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
+        >
+          <LogIn className="w-4 h-4 mr-1" />
+          {loading ? "Processing..." : "Check In"}
         </Button>
-        <Button onClick={handleCheckOut} disabled={!canCheckOut} className={`text-white ${canCheckOut ? "bg-red-600 hover:bg-red-700" : "bg-gray-400"}`}>
-          <LogOut className="w-4 h-4 mr-1" />Check Out
+        
+        <Button 
+          onClick={handleCheckOut} 
+          disabled={!canCheckOut || loading} 
+          className={`text-white ${canCheckOut && !loading ? "bg-red-600 hover:bg-red-700" : "bg-gray-400 cursor-not-allowed"}`}
+        >
+          <LogOut className="w-4 h-4 mr-1" />
+          {loading ? "Processing..." : "Check Out"}
         </Button>
       </div>
 
@@ -449,13 +512,14 @@ export default function MyAttendancePage() {
               {sortedRecords.map((r) => {
                 const checkIn = r.checkIn ? new Date(r.checkIn) : null;
                 const checkOut = r.checkOut ? new Date(r.checkOut) : null;
-                const workHours = checkIn && checkOut ? ((checkOut - checkIn) / (1000 * 60 * 60)).toFixed(2) : 0;
+                
                 return (
-                  <TableRow key={r.id}>
+                  <TableRow key={r.id || r._id}>
                     <TableCell>{displayDate(r.date)}</TableCell>
                     <TableCell>{checkIn ? displayTime(r.checkIn) : "—"}</TableCell>
                     <TableCell>{checkOut ? displayTime(r.checkOut) : "—"}</TableCell>
-                    <TableCell>{r.workHours !== undefined && r.workHours !== null
+                    <TableCell>
+                      {r.workHours !== undefined && r.workHours !== null
                         ? (() => {
                             const hours = Math.floor(r.workHours);
                             const minutes = Math.round((r.workHours - hours) * 60);
@@ -470,30 +534,30 @@ export default function MyAttendancePage() {
                             return `${hours}h ${minutes}m`;
                           })()
                         : "—"}
-                        </TableCell>
+                    </TableCell>
                     <TableCell>
                       {r.status === "—" || !r.status ? (
                         <span className="text-gray-400">—</span>
                       ) : (
-                        <Badge variant="outline" className={getStatusColor(r.status)}>{r.status}</Badge>
+                        <Badge variant="outline" className={getStatusColor(r.status)}>
+                          {r.status}
+                        </Badge>
                       )}
                     </TableCell>
                     <TableCell>{r.workMode || "—"}</TableCell>
                   </TableRow>
-                )
+                );
               })}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      
-
       {/* TIMESHEET BUTTON & DOWNLOAD */}
       <div className="flex justify-end gap-3 mt-4">
         <DropdownMenu>
-          <DropdownMenuTrigger asChild className=" bg-grey-50">
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+          <DropdownMenuTrigger asChild>
+            <Button className="bg-blue-600 hover:bg-blue-700 text-white" disabled={loading}>
               <Download size={18} className="mr-1" /> Download
             </Button>
           </DropdownMenuTrigger>
@@ -503,14 +567,30 @@ export default function MyAttendancePage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button onClick={() => setIsTimesheetOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
+        <Button 
+          onClick={() => setIsTimesheetOpen(true)} 
+          className="bg-blue-600 hover:bg-blue-700 text-white"
+          disabled={loading}
+        >
           Timesheet
         </Button>
       </div>
 
-      <TimesheetModal open={isTimesheetOpen} onClose={() => setIsTimesheetOpen(false)} records={sortedRecords} />
+      {/* MODALS */}
+      <TimesheetModal 
+        open={isTimesheetOpen} 
+        onClose={() => setIsTimesheetOpen(false)} 
+        records={sortedRecords} 
+      />
 
-      <LeaveRequestModal open={isLeaveModalOpen} onClose={() => setIsLeaveModalOpen(false)} />
+      <LeaveRequestModal 
+        open={isLeaveModalOpen} 
+        onClose={() => {
+          setIsLeaveModalOpen(false);
+          // Reload data when modal closes to catch new leave requests
+          load();
+        }} 
+      />
     </div>
   );
 }
