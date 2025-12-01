@@ -18,16 +18,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 
 // API Config
 const api = axios.create({ 
-  baseURL: "/", 
+  baseURL: import.meta.env.VITE_API_BASE_URL, 
   headers: { "Content-Type": "application/json" },
   timeout: 10000 // 10 second timeout
 });
 
 const AttendanceAPI = {
-  getByEmpId: (empId) => api.get(`/api/attendance/employee/${empId}`).then((r) => r.data),
-  checkIn: (payload) => api.post("/api/attendance/checkin", payload).then((r) => r.data),
-  deleteRecord: (id) => api.delete(`/api/attendance/${id}`).then((r) => r.data),
-  checkOut: (id) => api.patch(`/api/attendance/checkout/${id}`, { 
+  getByEmpId: (empId) => api.get(`/attendance/employee/${empId}`).then((r) => r.data),
+  checkIn: (payload) => api.post("/attendance/checkin", payload).then((r) => r.data),
+  deleteRecord: (id) => api.delete(`/attendance/${id}`).then((r) => r.data),
+  checkOut: (id) => api.patch(`/attendance/checkout/${id}`, { 
     checkOut: new Date().toISOString(), 
     status: "Present" 
   }).then((r) => r.data),
