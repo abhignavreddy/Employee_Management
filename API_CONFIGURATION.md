@@ -28,8 +28,7 @@ This project now uses environment variables for API configuration, making it eas
 ## Configuration Options
 
 ### Development (Local Backend)
-```env
-VITE_API_BASE_URL=http://localhost:8080/api
+
 ```
 
 ### Production

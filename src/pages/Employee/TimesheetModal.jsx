@@ -43,7 +43,14 @@ export default function TimesheetModal({ open, onClose, records = [] }) {
   const weeksList = getWeeksList();
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(null);
   const baseWeek = selectedWeekIdx !== null ? weeksList[selectedWeekIdx] : weeksList[0];
-  const weekLabel = selectedWeekIdx !== null ? weeksList[selectedWeekIdx].label : "Select Week Range";
+  const weekLabel = selectedWeekIdx !== null ? weeksList[selectedWeekIdx].label : weeksList[0].label;
+
+  // Reset selected week to current week every time modal opens
+  React.useEffect(() => {
+    if (open) {
+      setSelectedWeekIdx(null);
+    }
+  }, [open]);
 
   // CHANGED: Attendance mapped for each Monday–Sunday in IST
   const weekData = useMemo(() => {
@@ -77,6 +84,31 @@ export default function TimesheetModal({ open, onClose, records = [] }) {
     }
     return days;
   }, [records, baseWeek]);
+
+  // Format hours into "Xhr Ym". Accepts numbers (decimal hours) or already-formatted strings.
+  const formatHours = (hours) => {
+    if (hours === null || hours === undefined) return "0h 0m";
+    // If it's a string that already contains h or m, return as-is
+    if (typeof hours === 'string') {
+      if (hours.includes('h') || hours.includes('m') || hours.toLowerCase().includes('hr')) {
+        return hours;
+      }
+      // try parse float from string
+      const n = parseFloat(hours);
+      if (isNaN(n)) return hours;
+      hours = n;
+    }
+    // now hours is a number representing decimal hours
+    const totalHours = Number(hours) || 0;
+    const hh = Math.floor(totalHours);
+    let mm = Math.round((totalHours - hh) * 60);
+    if (mm === 60) {
+      mm = 0;
+      // increment hour
+      return `${hh + 1}hr 0m`;
+    }
+    return `${hh}hr ${mm}m`;
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -124,7 +156,7 @@ export default function TimesheetModal({ open, onClose, records = [] }) {
                 {/* CHANGED: Always show IST time for check-in/check-out */}
                 <TableCell>{d.checkIn ? new Date(d.checkIn).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit', timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
                 <TableCell>{d.checkOut ? new Date(d.checkOut).toLocaleTimeString("en-IN", { hour:'2-digit', minute:'2-digit', timeZone: "Asia/Kolkata" }) : "—"}</TableCell>
-                <TableCell>{d.hours ? d.hours.toFixed(2) : "0.00"}</TableCell>
+                <TableCell>{formatHours(d.hours)}</TableCell>
                 <TableCell>{d.workMode}</TableCell>
               </TableRow>
             ))}

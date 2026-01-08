@@ -4,7 +4,7 @@ import { FileText, Image, Paperclip, Edit2, Trash2 } from "lucide-react";
 import axios from "axios";
 
 // API Configuration
-const API_BASE_URL = "http://localhost:8080/api";
+const API_BASE_URL = import.meta.env.API_BASE_URL;
 
 // API Helper Functions
 const api = {
@@ -742,7 +742,7 @@ export default function ProjectsPage() {
                       <Paperclip className="w-5 h-5 text-gray-500" />
                     );
 
-                    const baseUrl = "http://localhost:8083/uploads";
+                    const baseUrl = import.meta.env.API_BASE_URL;
                     const resolvedUrl =
                       f.fileUrl && f.fileUrl.trim() !== "" ? f.fileUrl : `${baseUrl}/${f.fileName}`;
 

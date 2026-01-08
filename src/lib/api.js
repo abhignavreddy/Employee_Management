@@ -5,7 +5,7 @@
 
 // Get API base URL from environment variable
 // Falls back to proxy path if not defined (for development with Vite proxy)
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 // Log the configuration on initialization
 console.log('🌐 API Configuration:', {
