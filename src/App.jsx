@@ -198,16 +198,6 @@ function App() {
               }
             />
             <Route
-              path="/my-leaves"
-              element={
-                <ProtectedRoute allowedRoles={["Employee,HR"]}>
-                  <AppShell>
-                    <MyLeavesPage/>
-                  </AppShell>
-                </ProtectedRoute>
-              }
-            />
-            <Route
               path="/onboarding"
               element={
                 <ProtectedRoute allowedRoles={["HR"]}>

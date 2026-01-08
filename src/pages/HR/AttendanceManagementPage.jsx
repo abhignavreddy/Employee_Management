@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useMemo } from "react";
 import apiClient from "../../lib/apiClient";
 import { useAuth } from "../../contexts/AuthContext";
@@ -40,7 +41,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getHolidayByDate, ensureHolidays } from "../../lib/publicHolidays";
 
-// Helper functions for local date/time formatting
+// Helper functions for local date/time formatting (use user's local timezone)
 const displayTime = (timeString) => {
   if (!timeString) return "—";
   return new Date(timeString).toLocaleTimeString("en-IN", {
@@ -68,54 +69,6 @@ const AttendanceAPI = {
 
 export default function AttendanceManagementPage() {
   const { user } = useAuth();
-  
-  // ✅ COMPREHENSIVE USER DATA EXTRACTION
-  const getUserData = () => {
-    if (!user) {
-      console.error('❌ No user object found');
-      return { empId: '', empName: '', empRole: 'EMPLOYEE' };
-    }
-
-    console.log('=== AttendanceManagementPage User Data ===');
-    console.log('Full user object:', user);
-
-    // Extract empId with multiple fallbacks
-    const empId = user.empId 
-      || user.employeeId 
-      || user.identifier 
-      || user.emp_id 
-      || user.id 
-      || user._id 
-      || user.user?.empId 
-      || user.data?.empId 
-      || '';
-
-    // Extract name with multiple fallbacks
-    const firstName = user.firstName || user.first_name || user.user?.firstName || user.data?.firstName || '';
-    const lastName = user.lastName || user.last_name || user.user?.lastName || user.data?.lastName || '';
-    const empName = firstName && lastName 
-      ? `${firstName} ${lastName}`.trim()
-      : user.name || user.fullName || user.full_name || user.user?.name || user.data?.name || '';
-
-    // Extract role with multiple fallbacks
-    const empRole = user.role 
-      || user.empRole 
-      || user.userType 
-      || user.user?.role 
-      || user.data?.role 
-      || 'EMPLOYEE';
-
-    console.log('✅ Extracted data:');
-    console.log('  - empId:', empId);
-    console.log('  - empName:', empName);
-    console.log('  - empRole:', empRole);
-    console.log('==========================================');
-
-    return { empId, empName, empRole };
-  };
-
-  const { empId: currentEmpId, empName: currentEmpName, empRole: currentEmpRole } = getUserData();
-
   const today = new Date().toISOString().split("T")[0];
   const [todayHoliday, setTodayHoliday] = useState(null);
   const [isOnLeaveToday, setIsOnLeaveToday] = useState(false);
@@ -131,9 +84,7 @@ export default function AttendanceManagementPage() {
   const [selectedEmpRecords, setSelectedEmpRecords] = useState([]);
   const [isTimesheetOpen, setIsTimesheetOpen] = useState(false);
 
-  const isManagerView = ["HR", "MANAGER", "CEO"].includes(currentEmpRole?.toUpperCase());
-
-  console.log('👤 Current User Info:', { currentEmpId, currentEmpName, currentEmpRole, isManagerView });
+  const isManagerView = ["HR", "Manager", "CEO"].includes(user?.role);
 
   // Filter helper by date ignoring timestamps
   const filterByDate = (records, targetDate) => {
@@ -150,30 +101,18 @@ export default function AttendanceManagementPage() {
   };
 
   const load = async () => {
-    console.log('🔄 ========== LOADING ATTENDANCE DATA ==========');
-    
-    if (!currentEmpId) {
-      console.error('❌ No employee ID found. User must log in.');
-      alert('Please log in to view attendance data.');
-      return;
-    }
-
     setLoading(true);
     try {
-      console.log('📡 Fetching attendance for empId:', currentEmpId);
-      const selfRecords = await AttendanceAPI.getByEmpId(currentEmpId);
-      console.log('✅ Self records fetched:', selfRecords.length);
+      const selfRecords = await AttendanceAPI.getByEmpId(user.empId);
 
       // Fetch leave requests for the current user
       let leaves = [];
       try {
-        console.log('📡 Fetching leave requests for empId:', currentEmpId);
-        const leaveRes = await apiClient.get(`/leave-approvel/employee/${currentEmpId}`);
+        const leaveRes = await apiClient.get(`/leave-approvel/employee/${user.empId}`);
         leaves = leaveRes.data || [];
-        console.log("📋 Fetched User Leave Requests:", leaves);
+        console.log("📋 [HR/Manager] Fetched Leave Requests:", leaves);
       } catch (err) {
-        console.error("❌ Failed to load leave data:", err);
-        console.error("❌ Error response:", err.response?.data);
+        console.error("Failed to load leave data:", err);
         leaves = [];
       }
 
@@ -189,20 +128,20 @@ export default function AttendanceManagementPage() {
         );
       }) || null;
       setTodayRecord(personalToday);
-      console.log('📅 Today\'s record:', personalToday);
 
-      // Check if current user is on APPROVED leave today
+      // Check if current user is on APPROVED leave today - ONLY for APPROVED leaves
       const onLeaveToday = leaves.some((l) => {
         const status = l.status?.toUpperCase() || "";
-        console.log("🔍 Checking leave:", {
+        console.log("🔍 [HR/Manager] Checking leave:", {
           fromDate: l.fromDate,
           toDate: l.toDate,
           status: status,
+          originalStatus: l.status,
           isApproved: status === "APPROVED"
         });
         
         if (status !== "APPROVED") {
-          console.log("❌ Leave not approved, skipping");
+          console.log("❌ [HR/Manager] Leave not approved, skipping");
           return false;
         }
         
@@ -210,47 +149,31 @@ export default function AttendanceManagementPage() {
         const toDate = new Date(l.toDate).toISOString().split("T")[0];
         
         const isInRange = today >= fromDate && today <= toDate;
-        console.log("📅 Date check:", { today, fromDate, toDate, isInRange });
+        console.log("📅 [HR/Manager] Date check:", { today, fromDate, toDate, isInRange });
         
         return isInRange;
       });
       setIsOnLeaveToday(onLeaveToday);
       
-      console.log("✅ Final Leave Status - Today:", today, "On Leave:", onLeaveToday);
+      console.log("✅ [HR/Manager] Final Leave Status - Today:", today, "On Leave:", onLeaveToday);
 
       if (isManagerView) {
-        console.log('👔 Manager view detected, fetching all records...');
-        
-        // Get all attendance records
+        // Get all without date filter
         const allRecords = await AttendanceAPI.getAll();
-        console.log('✅ All records fetched:', allRecords.length);
 
-        // Fetch all employees' leave requests
+        // Fetch all employees' leave requests to update attendance status
         let allLeaves = [];
         try {
-          console.log('📡 Fetching ALL leave requests...');
-          console.log('🔑 Using role:', currentEmpRole?.toUpperCase());
-          console.log('🔑 Using empId:', currentEmpId);
-          
           const allLeavesRes = await apiClient.get("/leave-approvel/view", {
-            params: { role: currentEmpRole?.toUpperCase() || 'MANAGER', empId: currentEmpId }
+            params: { role: user.role?.toUpperCase() }
           });
           allLeaves = allLeavesRes.data || [];
-          console.log("📋 Fetched ALL leave requests:", allLeaves.length);
+          console.log("📋 [HR/Manager] Fetched ALL leave requests:", allLeaves);
         } catch (err) {
-          console.error("❌ Failed to load all leave data:", err);
-          console.error("❌ Error response:", err.response?.data);
-          console.error("❌ Error status:", err.response?.status);
-          console.error("❌ Request config:", err.config);
-          
-          // Show user-friendly error
-          if (err.response?.status === 400) {
-            console.warn('⚠️ 400 Bad Request - Check if role parameter is correct');
-            console.warn('⚠️ Current role:', currentEmpRole);
-          }
+          console.error("Failed to load all leave data:", err);
         }
 
-        // Update attendance records with correct leave status
+        // Update attendance records with correct leave status using refined rules
         const todayDateObj = new Date(today);
         const enrichedRecords = allRecords.map(record => {
           if (!record.date) return record;
@@ -261,7 +184,7 @@ export default function AttendanceManagementPage() {
             const status = l.status?.toUpperCase();
             if (status !== "APPROVED") return false;
             const empId = l.empId || l.emp_id || l.employeeId;
-            if (String(empId) !== String(record.empId)) return false;
+            if (empId !== record.empId) return false;
             const fromStr = new Date(l.fromDate).toISOString().split("T")[0];
             const toStr = new Date(l.toDate).toISOString().split("T")[0];
             return recordDateStr >= fromStr && recordDateStr <= toStr;
@@ -276,13 +199,13 @@ export default function AttendanceManagementPage() {
             } else if (recordDateObj < todayDateObj) {
               finalStatus = "Absent";
             } else {
-              finalStatus = "—";
+              finalStatus = "—"; // show hyphen for today/future with revoked leave
             }
           }
           return { ...record, status: finalStatus };
         });
 
-        // Build synthetic records for approved leaves
+        // Build synthetic records for approved leaves that have NO attendance row for selected date
         const approvedLeavesForSelectedDate = allLeaves.filter(l => {
           const status = l.status?.toUpperCase();
           if (status !== "APPROVED") return false;
@@ -292,18 +215,18 @@ export default function AttendanceManagementPage() {
         });
 
         const attendanceForSelectedDate = filterByDate(enrichedRecords, selectedDate);
-        const existingEmpIds = new Set(attendanceForSelectedDate.map(r => String(r.empId)));
+        const existingEmpIds = new Set(attendanceForSelectedDate.map(r => r.empId));
 
         const syntheticLeaveRecords = approvedLeavesForSelectedDate
           .filter(l => {
             const empId = l.empId || l.emp_id || l.employeeId;
-            return empId && !existingEmpIds.has(String(empId));
+            return empId && !existingEmpIds.has(empId);
           })
           .map(l => {
             const empId = l.empId || l.emp_id || l.employeeId;
             return {
-              id: `synthetic-leave-${String(empId)}-${selectedDate}`,
-              empId: String(empId),
+              id: `synthetic-leave-${empId}-${selectedDate}`,
+              empId,
               empName: l.empName || l.emp_name || "Unknown",
               date: selectedDate,
               status: "Leave",
@@ -314,21 +237,16 @@ export default function AttendanceManagementPage() {
             };
           });
 
+        // Combine and filter out rows with hyphen status (rejected leaves)
         const combined = [...attendanceForSelectedDate, ...syntheticLeaveRecords].filter(r => r.status !== "—");
-        console.log("📊 Final combined records:", combined.length);
+        console.log("📊 [HR/Manager] Enriched records with synthetic leave rows:", combined);
         setRecords(combined);
       } else {
-        console.log('👤 Employee view, showing own records only');
         const filtered = filterByDate(selfRecords, selectedDate);
-        console.log('📊 Filtered records:', filtered.length);
         setRecords(filtered);
       }
-      
-      console.log('===============================================');
     } catch (err) {
-      console.error("❌ ========== LOAD FAILED ==========");
-      console.error("Error:", err);
-      console.error("====================================");
+      console.error("Failed to fetch attendance:", err);
       setRecords([]);
     } finally {
       setLoading(false);
@@ -336,6 +254,7 @@ export default function AttendanceManagementPage() {
   };
 
   useEffect(() => {
+    // load attendance and ensure holidays for current year
     (async () => {
       await ensureHolidays(new Date().getFullYear());
       setTodayHoliday(getHolidayByDate(today));
@@ -347,58 +266,57 @@ export default function AttendanceManagementPage() {
     if (isOnLeaveToday) return alert("Check-in disabled: You are on approved leave today.");
     if (todayHoliday) return alert(`Check-in disabled: Public holiday — ${todayHoliday.name}`);
     
+    // Check if already checked in today
     if (todayRecord && todayRecord.checkIn) {
       return alert("You have already checked in today!");
     }
     
-    console.log("🔵 ========== CHECK-IN ATTEMPT ==========");
-    console.log("User data:", { currentEmpId, currentEmpName, currentEmpRole });
-    console.log("Work mode:", workMode);
-    console.log("Today's record:", todayRecord);
-    
-    if (!currentEmpId || !currentEmpName) {
-      alert("Cannot check in: User data incomplete. Please log in again.");
-      return;
-    }
+    console.log("🔵 [HR/Manager] Attempting check-in...", { 
+      empId: user.empId, 
+      empName: user.name, 
+      workMode,
+      todayRecord,
+      isOnLeaveToday,
+      todayHoliday 
+    });
     
     try {
       const now = new Date();
       const payload = {
-        empId: currentEmpId,
-        empName: currentEmpName,
+        empId: user.empId,
+        empName: user.name,
         date: now.toISOString().split("T")[0],
         checkIn: now.toISOString(),
         workMode,
         status: "Present",
-        empRole: currentEmpRole,
+        empRole: user.role,
       };
       
-      console.log("📤 Sending check-in payload:", payload);
+      console.log("📤 [HR/Manager] Sending check-in payload:", payload);
       
-      // If old absent record exists, delete it first
+      let response;
+      // If today's record exists with status "Absent" (due to rejected leave), DELETE it first
       if (todayRecord && todayRecord.id && !todayRecord.checkIn) {
-        console.log("🗑️ Deleting old Absent record:", todayRecord.id);
+        console.log("🗑️ [HR/Manager] Deleting old Absent record:", todayRecord.id);
         try {
           await AttendanceAPI.deleteRecord(todayRecord.id);
-          console.log("✅ Old record deleted");
+          console.log("✅ [HR/Manager] Old record deleted");
         } catch (delErr) {
-          console.warn("⚠️ Could not delete old record");
+          console.warn("⚠️ [HR/Manager] Could not delete old record, will try to create new one anyway");
         }
       }
       
-      console.log("➕ Creating new check-in record");
-      const response = await AttendanceAPI.checkIn(payload);
+      // Now CREATE a new record
+      console.log("➕ [HR/Manager] Creating new check-in record");
+      response = await AttendanceAPI.checkIn(payload);
       
-      console.log("✅ Check-in successful:", response);
-      console.log("========================================");
+      console.log("✅ [HR/Manager] Check-in response:", response);
       
       alert("Checked in successfully!");
       load();
     } catch (err) {
-      console.error("❌ ========== CHECK-IN FAILED ==========");
-      console.error("Error:", err);
-      console.error("Response:", err.response?.data);
-      console.error("========================================");
+      console.error("❌ [HR/Manager] Check-in error:", err);
+      console.error("❌ [HR/Manager] Error response:", err.response?.data);
       alert(err.response?.data?.message || err.message || "Check-in failed");
     }
   };
@@ -408,20 +326,15 @@ export default function AttendanceManagementPage() {
     if (todayHoliday) return alert(`Check-out disabled: Public holiday — ${todayHoliday.name}`);
     if (!todayRecord) return alert("No check-in found for today.");
     
-    console.log("🔴 ========== CHECK-OUT ATTEMPT ==========");
-    console.log("Record ID:", todayRecord.id);
+    console.log("🔴 [HR/Manager] Attempting check-out...", { recordId: todayRecord.id, empId: user.empId });
     
     try {
       await AttendanceAPI.checkOut(todayRecord.id);
-      console.log("✅ Check-out successful");
-      console.log("=========================================");
       alert("Checked out successfully!");
       load();
     } catch (err) {
-      console.error("❌ ========== CHECK-OUT FAILED ==========");
-      console.error("Error:", err);
-      console.error("Response:", err.response?.data);
-      console.error("=========================================");
+      console.error("❌ [HR/Manager] Check-out error:", err);
+      console.error("❌ [HR/Manager] Error response:", err.response?.data);
       alert(err.response?.data?.message || err.message || "Check-out failed");
     }
   };
@@ -503,14 +416,15 @@ export default function AttendanceManagementPage() {
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:justify-between gap-4 w-full">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Attendance Management</h1>
           <p className="text-gray-600">Track and manage employee attendance records</p>
         </div>
 
-        {["HR", "MANAGER", "CEO"].includes(currentEmpRole?.toUpperCase()) && (
-          <div className="flex flex-wrap items-center gap-3 w-full">
+        {["HR", "Manager"].includes(user?.role) && (
+          <div className="flex items-center space-x-3">
+            {/* Work Mode */}
             <Select value={workMode} onValueChange={setWorkMode}>
               <SelectTrigger className="w-[130px] bg-white border-gray-300 text-gray-800">
                 <SelectValue placeholder="Mode" />
@@ -531,10 +445,11 @@ export default function AttendanceManagementPage() {
               </SelectContent>
             </Select>
 
+            {/* Check-in / Check-out */}
             <Button
-              disabled={!canCheckIn || todayHoliday || isOnLeaveToday || !currentEmpId}
+              disabled={!canCheckIn || todayHoliday || isOnLeaveToday}
               onClick={handleCheckIn}
-              className={`flex items-center text-white ${canCheckIn && !isOnLeaveToday && !todayHoliday && currentEmpId ? "bg-green-600 hover:bg-green-700" : "bg-gray-400"}`}
+              className={`flex items-center text-white ${canCheckIn && !isOnLeaveToday && !todayHoliday ? "bg-green-600 hover:bg-green-700" : "bg-gray-400"}`}
             >
               <LogIn className="w-4 h-4 mr-2" />
               Check In
@@ -548,15 +463,16 @@ export default function AttendanceManagementPage() {
               Check Out
             </Button>
 
+            {/* Request Leave */}
+            <Button
+              onClick={() => setIsLeaveModalOpen(true)}
+              className="bg-blue-600 text-white flex items-center"
+            >
+              <Plus className="h-4 w-4 mr-2" /> Request Leave
+            </Button>
           </div>
         )}
       </div>
-
-      {!currentEmpId && (
-        <div className="p-3 mb-2 bg-red-100 text-red-800 rounded-md border border-red-300">
-          ⚠️ User data incomplete. Please refresh the page and log in again.
-        </div>
-      )}
 
       {isOnLeaveToday && (
         <div className="p-3 mb-2 bg-yellow-100 text-yellow-800 rounded-md border border-yellow-300">
@@ -703,6 +619,7 @@ export default function AttendanceManagementPage() {
                         onClick={async () => {
                           setSelectedEmpId(r.empId);
                           setSelectedEmpName(r.empName);
+                          // fetch employee's full attendance records for timesheet
                           const allEmpRecords = await AttendanceAPI.getByEmpId(r.empId);
                           setSelectedEmpRecords(allEmpRecords);
                           setIsTimesheetOpen(true);
@@ -757,7 +674,6 @@ export default function AttendanceManagementPage() {
       <LeaveRequestModal
         open={isLeaveModalOpen}
         onClose={() => setIsLeaveModalOpen(false)}
-        onSubmitted={load}
       />
     </div>
   );
