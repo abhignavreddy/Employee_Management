@@ -10,7 +10,7 @@ import { Toaster } from "sonner";
 import Login from "./pages/Login";
 import Unauthorized from "./pages/Unauthorized";
 import RoleRedirect from "./pages/RoleRedirect";
-import RegistrationForm from "./pages/RegistrationForm";
+import EmployeeRegistrationForm from "./pages/RegistrationForm";
 
 // Manager Pages
 import ClientIntakePage from "./pages/Manager/ClientRequirement";
@@ -335,7 +335,7 @@ function App() {
             <Route
               path="/my-leaves"
               element={
-                <ProtectedRoute allowedRoles={["Employee"]}>
+                <ProtectedRoute allowedRoles={["Employee", "HR", "Manager"]}>
                   <AppShell>
                     <MyLeavesPage/>
                   </AppShell>
@@ -367,7 +367,17 @@ function App() {
               }
             />
 
-            <Route path="/register" element={<RegistrationForm />} />
+            <Route
+              path="/register"
+              element={
+                <ProtectedRoute allowedRoles={["Manager", "Employee", "CEO", "HR"]}>
+                  <AppShell>
+                    <EmployeeRegistrationForm />
+                  </AppShell>
+                </ProtectedRoute>
+              }
+            />
+
           </Routes>
         </BrowserRouter>
 
